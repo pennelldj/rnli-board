@@ -73,7 +73,17 @@ function write_archive(): array {
   }
 
   // Fetch new data
-  $raw = fetch_json(API_URL);
+  $raw = null;
+try {
+    // Try direct to RNLI
+    $raw = fetch_json(API_URL);
+} catch (Throwable $e) {
+    // Fallback via local proxy (works in your setup)
+    $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+    $host     = $_SERVER['HTTP_HOST'] ?? 'shout.stiwdio.com';
+    $proxyUrl = $scheme . $host . '/proxy.php?url=' . rawurlencode(API_URL);
+    $raw      = fetch_json($proxyUrl);
+}
   $incoming = normalize($raw);
 
   // Merge unseen

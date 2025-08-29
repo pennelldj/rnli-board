@@ -3,4 +3,12 @@ deployment:
   tasks:
     - export DEPLOYPATH="$HOME/shout.stiwdio.com"
     - /bin/mkdir -p "$DEPLOYPATH"
+
+    # pack current repo (excluding git & the deploy file), then extract to docroot
+    - /bin/tar -C . --exclude='.git' --exclude='.github' --exclude='.cpanel.yml' -cf /tmp/deploy.tar .
+    - /bin/tar -C "$DEPLOYPATH" -xf /tmp/deploy.tar
+    - /bin/rm -f /tmp/deploy.tar
+
+    # breadcrumbs you can check in the browser
     - /bin/date > "$DEPLOYPATH/.deploy_log"
+    - /bin/ls -la "$DEPLOYPATH" > "$DEPLOYPATH/.last_deploy_ls"

@@ -20,7 +20,6 @@
   .seg button+button{border-left:1px solid var(--border)}
   .seg .active{background:#2563eb22;outline:1px solid #2563eb55}
   .count{opacity:.65;margin-left:6px;font-size:12px}
-
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:18px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px}
   .meta{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
@@ -28,32 +27,23 @@
   .rightTop{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right;max-width:45%;font-size:13px;color:#aaa}
   .label{font-size:12px;text-transform:uppercase;color:#ffffff99}
   .title{margin-top:4px;font-size:18px;font-weight:700}
-
   .boat{font-size:13px;color:#9ca3af;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px}
   .boat .classLink{color:#9ca3af;text-decoration:underline;text-underline-offset:2px}
   .boat .classLink:hover{color:#fff}
   .boat .idNo{flex:0 0 100%}
-
   .desc{margin-top:8px;color:#fff}
-  /* NEW: dedicated county line to match live layout */
-  .county{margin-top:6px;color:#cbd5e1}
-
   .row2{margin-top:10px;display:flex;justify-content:space-between;align-items:flex-start;font-size:12px;color:#ffffff99;gap:10px}
   .loc{flex:1 1 auto;min-width:0;margin-bottom:2px}
   .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right;max-width:60%}
   .status{white-space:nowrap;display:flex;align-items:center;gap:8px;margin-top:4px}
   .links{display:inline-flex;flex-wrap:wrap;gap:12px}
-
   .dot{width:10px;height:10px;border-radius:999px;margin-right:5px;display:inline-block;animation:pulse 1.2s infinite}
   @keyframes pulse{0%{transform:scale(.9);opacity:.6}70%{transform:scale(1.2);opacity:1}100%{transform:scale(.9);opacity:.6}}
   .recent .dot{background:#22c55e}.today .dot{background:var(--rnliY)}.older .dot{background:#ef4444}
   .card.recent{border-color:#22c55e55}.card.today{border-color:rgba(255,209,0,.35)}.card.older{border-color:#ef444455}
-
   .day{margin-top:24px}
   .day h2{margin:0 0 10px;font-size:16px;font-weight:600;color:#cbd5e1;text-transform:uppercase}
-
   .pager{display:flex;gap:10px;align-items:center;margin-top:18px}
-
   .skeleton{background:linear-gradient(90deg,#ffffff0a,#ffffff17,#ffffff0a);background-size:200% 100%;animation:sweep 1.2s linear infinite;border:1px solid var(--border);border-radius:18px;height:96px}
   @keyframes sweep{0%{background-position:200% 0}100%{background-position:-200% 0}}
   .empty{margin-top:18px;color:#94a3b8}
@@ -106,8 +96,7 @@
   let page = 1, size = 50, region = 'all';
   let includeYesterday = false; // read from URL at boot
 
-  const CLASS_LINKS={
-    'D-class Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/d-class-lifeboat',
+  const CLASS_LINKS={ 'D-class Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/d-class-lifeboat',
     'Atlantic (B-class) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/b-class-lifeboat',
     'E-class (Thames) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/e-class-lifeboat',
     'Hovercraft':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/rescue-hovercraft',
@@ -116,8 +105,7 @@
     'Tamar class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/tamar-class-lifeboat',
     'Trent class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/trent-class-lifeboat',
     'Mersey class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/mersey-class-lifeboat',
-    'XP-class':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/inshore-rescue-boat'
-  };
+    'XP-class':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/inshore-rescue-boat' };
 
   function classFromId(op){ if(!op) return ''; op=String(op).trim().toUpperCase();
     if(/^D-\d+/.test(op)) return 'D-class Inshore';
@@ -130,8 +118,7 @@
     if(/^16-\d+/.test(op)) return 'Tamar class All-Weather';
     if(/^14-\d+/.test(op)) return 'Trent class All-Weather';
     if(/^12-\d+/.test(op)) return 'Mersey class All-Weather';
-    return '';
-  }
+    return ''; }
 
   function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function relTime(iso){ if(!iso)return''; const t=new Date(iso).getTime(); const s=Math.floor((Date.now()-t)/1000);
@@ -157,28 +144,17 @@
     return REGIONS[r].some(w=>s.includes(w.toLowerCase()));
   }
 
-  function partsFromTitle(title){
-    const parts = String(title||'').split(',').map(t=>t.trim()).filter(Boolean);
-    const place = parts.join(', ');
-    const county = parts.length>1 ? parts[parts.length-1] : '';
-    return {place, county};
-  }
-
   function cardHTML(it){
     const cls = ageClass(it.launchDate);
-
     const idNo = it.lifeboat_IdNo || '';
     const className = idNo ? classFromId(idNo) : '';
     let classHtml = className ? escapeHtml(className) : '';
-    if (className && CLASS_LINKS[className]) {
-      classHtml = '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
-    }
+    if (className && CLASS_LINKS[className]) classHtml =
+      '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
     const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';
-
-    const {place, county} = partsFromTitle(it.title);
     const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
-
-    const mapsQ = encodeURIComponent('RNLI ' + (it.shortName||'') + (county?(' '+county):''));
+    const location = ((it.title||'').includes(',') ? it.title.split(',').slice(1).join(',') : '').trim();
+    const mapsQ = encodeURIComponent('RNLI '+(it.shortName||''));
     const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
 
     return `
@@ -194,12 +170,9 @@
             <div style="color:#666">${new Date(it.launchDate).toLocaleTimeString()}</div>
           </div>
         </div>
-
-        <div class="desc">${escapeHtml(place)}</div>
-        ${county ? `<div class="county">${escapeHtml(county)}</div>` : ''}
-
+        <div class="desc">${escapeHtml(it.title || '')}</div>
         <div class="row2">
-          <div class="loc">${escapeHtml(place)}</div>
+          <div class="loc">${escapeHtml(location)}</div>
           <div class="right">
             <div class="status"><span class="dot"></span>${statusText(it.launchDate)}</div>
             <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
@@ -249,7 +222,7 @@
     const params = new URLSearchParams({ page, page_size: size });
     const qv = els.q.value.trim();
     if (qv) params.set('search', qv);
-    if (includeYesterday) params.set('include_yesterday', '1');
+    if (includeYesterday) params.set('include_yesterday', '1'); // 👈 forward flag to PHP
 
     const res = await fetch('archive_feed.php?' + params.toString(), { cache:'no-cache' });
     if (!res.ok) { els.days.innerHTML = '<div class="empty">Failed to load archive.</div>'; return; }
@@ -269,7 +242,7 @@
     url.searchParams.set('page', page);
     qv ? url.searchParams.set('search', qv) : url.searchParams.delete('search');
     url.searchParams.set('region', region);
-    includeYesterday ? url.searchParams.set('include_yesterday','1') : url.searchParams.delete('include_yesterday');
+    includeYesterday ? url.searchParams.set('include_yesterday','1') : url.searchParams.delete('include_yesterday'); // 👈 persist
     history.replaceState(null,'',url);
   }
 
@@ -288,7 +261,7 @@
   // Boot: restore from URL (including include_yesterday flag)
   const u = new URL(location.href);
   page = Math.max(1, parseInt(u.searchParams.get('page')||'1',10));
-  includeYesterday = u.searchParams.get('include_yesterday') === '1';
+  includeYesterday = u.searchParams.get('include_yesterday') === '1'; // 👈 read flag
   els.q.value = u.searchParams.get('search')||'';
   region = u.searchParams.get('region') || 'all';
   const activeBtn = els.regionSeg.querySelector('button[data-region="'+region+'"]') || els.regionSeg.querySelector('button[data-region="all"]');

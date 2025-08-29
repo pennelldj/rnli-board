@@ -14,7 +14,28 @@ if (!isset($_GET['url'])) {
   echo json_encode(['error' => 'Missing url']); exit;
 }
 
-$url = $_GET['url'];
+// Get target URL from either ?u= (base64) or ?url= (plain/encoded)
+if (isset($_GET['u'])) {
+    // base64url → base64
+    $u = strtr(trim($_GET['u']), '-_', '+/');
+    $url = base64_decode($u, true);
+    if ($url === false) {
+        http_response_code(400);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'Bad base64']);
+        exit;
+    }
+} elseif (isset($_GET['url'])) {
+    $url = $_GET['url'];
+    // Accept either encoded or plain URLs
+    if (strpos($url, '%') !== false) { $url = rawurldecode($url); }
+    $url = trim($url);
+} else {
+    http_response_code(400);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Missing url/u']);
+    exit;
+}
 // Accept either encoded or plain URLs
 if (strpos($url, '%') !== false) { $url = rawurldecode($url); }
 $url = trim($url);

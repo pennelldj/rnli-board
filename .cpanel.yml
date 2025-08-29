@@ -1,7 +1,14 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH="shout.stiwdio.com"
+    # Use an ABSOLUTE path for the live site
+    - export DEPLOYPATH="/home/stiwocom/shout.stiwdio.com"
+
+    # Ensure the target exists
     - /bin/mkdir -p "$DEPLOYPATH"
+
+    # Copy repo -> live (safe, simple). Switch to rsync later if you want deletes.
     - /bin/cp -a ./ "$DEPLOYPATH/"
+
+    # Leave a browser-checkable marker
     - /bin/echo "Deployed to $DEPLOYPATH on $(/bin/date)" > "$DEPLOYPATH/.deploy_log"

@@ -2,13 +2,5 @@
 deployment:
   tasks:
     - export DEPLOYPATH="$HOME/shout.stiwdio.com"
-
-    # make sure docroot exists
     - /bin/mkdir -p "$DEPLOYPATH"
-
-    # copy (rsync if present; fallback to cp)
-    - /usr/bin/rsync -a --delete --exclude ".git" --exclude ".github" --exclude ".cpanel.yml" ./ "$DEPLOYPATH/" || /bin/cp -a ./ "$DEPLOYPATH/"
-
-    # breadcrumbs you can view in the browser
     - /bin/date > "$DEPLOYPATH/.deploy_log"
-    - /bin/ls -la "$DEPLOYPATH" > "$DEPLOYPATH/.last_deploy_ls"

@@ -1,11 +1,4 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/stiwoocom/shout.stiwdio.com
-    - /bin/mkdir -p $DEPLOYPATH
-    - /bin/rsync -av --delete \
-        --exclude ".git" \
-        --exclude ".gitignore" \
-        --exclude "backups/" \
-        ./ $DEPLOYPATH/
-    - /bin/echo "Deployed to $DEPLOYPATH on $(/bin/date)"
+    - /bin/echo "Deploy hook reached on $(/bin/date)"

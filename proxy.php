@@ -15,6 +15,9 @@ if (!isset($_GET['url'])) {
 }
 
 $url = $_GET['url'];
+// Accept either encoded or plain URLs
+if (strpos($url, '%') !== false) { $url = rawurldecode($url); }
+$url = trim($url);
 $parts = parse_url($url);
 if (!$parts || !isset($parts['host']) || !in_array($parts['host'], $allowed_hosts, true)) {
   http_response_code(400);

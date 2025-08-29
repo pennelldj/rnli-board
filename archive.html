@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RNLI Launch Archive</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#ffffff80;--muted2:#ffffff66;--rnli:#f28b00;--rnliY:#FFD100}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial}
+  a{color:var(--rnli)}
+  .container{max-width:1100px;margin:0 auto;padding:24px 16px 48px}
+  h1{margin:0;font-size:28px}
+  .sub{color:var(--muted2);margin-top:6px}
+  .toolbar{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  input,button{background:#ffffff0d;border:1px solid var(--border);border-radius:12px;padding:8px 12px;color:#fff}
+  .seg{display:inline-flex;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .seg button{background:#ffffff0d;border:0;color:#fff;padding:8px 12px;cursor:pointer}
+  .seg button+button{border-left:1px solid var(--border)}
+  .seg .active{background:#2563eb22;outline:1px solid #2563eb55}
+  .count{opacity:.65;margin-left:6px;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:18px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px}
+  .meta{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .left{flex:1 1 0;min-width:0}
+  .rightTop{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right;max-width:45%;font-size:13px;color:#aaa}
+  .label{font-size:12px;text-transform:uppercase;color:#ffffff99}
+  .title{margin-top:4px;font-size:18px;font-weight:700}
+  .boat{font-size:13px;color:#9ca3af;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px}
+  .boat .classLink{color:#9ca3af;text-decoration:underline;text-underline-offset:2px}
+  .boat .classLink:hover{color:#fff}
+  .boat .idNo{flex:0 0 100%}
+  .desc{margin-top:8px;color:#fff}
+  .row2{margin-top:10px;display:flex;justify-content:space-between;align-items:flex-start;font-size:12px;color:#ffffff99;gap:10px}
+  .loc{flex:1 1 auto;min-width:0;margin-bottom:2px}
+  .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right;max-width:60%}
+  .status{white-space:nowrap;display:flex;align-items:center;gap:8px;margin-top:4px}
+  .links{display:inline-flex;flex-wrap:wrap;gap:12px}
+  .dot{width:10px;height:10px;border-radius:999px;margin-right:5px;display:inline-block;animation:pulse 1.2s infinite}
+  @keyframes pulse{0%{transform:scale(.9);opacity:.6}70%{transform:scale(1.2);opacity:1}100%{transform:scale(.9);opacity:.6}}
+  .recent .dot{background:#22c55e}.today .dot{background:var(--rnliY)}.older .dot{background:#ef4444}
+  .card.recent{border-color:#22c55e55}.card.today{border-color:rgba(255,209,0,.35)}.card.older{border-color:#ef444455}
+  .day{margin-top:24px}
+  .day h2{margin:0 0 10px;font-size:16px;font-weight:600;color:#cbd5e1;text-transform:uppercase}
+  .pager{display:flex;gap:10px;align-items:center;margin-top:18px}
+  .skeleton{background:linear-gradient(90deg,#ffffff0a,#ffffff17,#ffffff0a);background-size:200% 100%;animation:sweep 1.2s linear infinite;border:1px solid var(--border);border-radius:18px;height:96px}
+  @keyframes sweep{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .empty{margin-top:18px;color:#94a3b8}
+  button:disabled{opacity:.45;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>RNLI Launch Archive</h1>
+  <div class="sub">Older launches saved automatically from the live board.</div>
+
+  <div class="toolbar">
+    <input id="q" placeholder="Filter by station or location…">
+    <div class="seg" id="regionSeg">
+      <button data-region="all" class="active">All <span class="count" id="c_all"></span></button>
+      <button data-region="wales">Wales <span class="count" id="c_wales"></span></button>
+      <button data-region="scotland">Scotland <span class="count" id="c_scotland"></span></button>
+      <button data-region="england">England <span class="count" id="c_england"></span></button>
+      <button data-region="ireland">Ireland <span class="count" id="c_ireland"></span></button>
+    </div>
+    <a href="./" style="margin-left:auto">← Back to Live Board</a>
+  </div>
+
+  <div id="days"></div>
+
+  <div class="pager">
+    <button id="prev">Prev</button>
+    <div id="meta"></div>
+    <button id="next">Next</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const els = {
+    days: document.getElementById('days'),
+    prev: document.getElementById('prev'),
+    next: document.getElementById('next'),
+    meta: document.getElementById('meta'),
+    q: document.getElementById('q'),
+    regionSeg: document.getElementById('regionSeg'),
+    counts: {
+      all: document.getElementById('c_all'),
+      wales: document.getElementById('c_wales'),
+      scotland: document.getElementById('c_scotland'),
+      england: document.getElementById('c_england'),
+      ireland: document.getElementById('c_ireland'),
+    }
+  };
+  let page = 1, size = 50, region = 'all';
+  let includeYesterday = false; // read from URL at boot
+
+  const CLASS_LINKS={ 'D-class Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/d-class-lifeboat',
+    'Atlantic (B-class) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/b-class-lifeboat',
+    'E-class (Thames) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/e-class-lifeboat',
+    'Hovercraft':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/rescue-hovercraft',
+    'Shannon class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/shannon-class-lifeboat',
+    'Severn class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/severn-class-lifeboat',
+    'Tamar class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/tamar-class-lifeboat',
+    'Trent class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/trent-class-lifeboat',
+    'Mersey class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/mersey-class-lifeboat',
+    'XP-class':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/inshore-rescue-boat' };
+
+  function classFromId(op){ if(!op) return ''; op=String(op).trim().toUpperCase();
+    if(/^D-\d+/.test(op)) return 'D-class Inshore';
+    if(/^B-\d+/.test(op)) return 'Atlantic (B-class) Inshore';
+    if(/^E-\d+/.test(op)) return 'E-class (Thames) Inshore';
+    if(/^H-\d+/.test(op)) return 'Hovercraft';
+    if(/^XP-?\d+/.test(op)) return 'XP-class';
+    if(/^13-\d+/.test(op)) return 'Shannon class All-Weather';
+    if(/^17-\d+/.test(op)) return 'Severn class All-Weather';
+    if(/^16-\d+/.test(op)) return 'Tamar class All-Weather';
+    if(/^14-\d+/.test(op)) return 'Trent class All-Weather';
+    if(/^12-\d+/.test(op)) return 'Mersey class All-Weather';
+    return ''; }
+
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function relTime(iso){ if(!iso)return''; const t=new Date(iso).getTime(); const s=Math.floor((Date.now()-t)/1000);
+    if(s<60)return s+'s ago'; const m=Math.floor(s/60); if(m<60)return m+'m ago';
+    const h=Math.floor(m/60); if(h<24)return h+'h ago'; const d=Math.floor(h/24); return d+'d ago'; }
+  function ageClass(iso){ const h=(Date.now()-new Date(iso).getTime())/3600000;
+    if(h<1)return'recent'; if(h<24)return'today'; return'older'; }
+  function dayLabel(date){ const d=new Date(date), today=new Date(); today.setHours(0,0,0,0); const that=new Date(d); that.setHours(0,0,0,0);
+    const diff=Math.round((today-that)/86400000); if(diff===0)return'Today'; if(diff===1)return'Yesterday'; return 'Earlier'; }
+  function statusText(iso){ const label=dayLabel(iso); const under1h=(Date.now()-new Date(iso).getTime())<3600000;
+    if(under1h&&label==='Today')return'Launched (recently)'; if(label==='Today')return'Launched (today)';
+    if(label==='Yesterday')return'Launched (yesterday)'; return'Launched (earlier)'; }
+
+  const REGIONS = {
+    wales: ['Anglesey','Gwynedd','Conwy','Denbighshire','Flintshire','Wrexham','Powys','Ceredigion','Pembrokeshire','Carmarthenshire','Swansea','Neath Port Talbot','Bridgend','Vale of Glamorgan','Cardiff','Rhondda','Cynon','Taf','Merthyr Tydfil','Caerphilly','Blaenau Gwent','Torfaen','Monmouthshire','Newport','Wales'],
+    scotland: ['Scotland','Highland','Orkney','Shetland','Aberdeenshire','Moray','Argyll','Bute','Fife','Dundee','Angus','Perth','Kinross','Ayrshire','Lanarkshire','Lothian','Borders','Inverclyde','Renfrewshire'],
+    england: ['England','Cornwall','Devon','Dorset','Somerset','Hampshire','Sussex','Kent','Essex','Norfolk','Suffolk','Lincolnshire','Yorkshire','Northumberland','Tyne and Wear','Cleveland','Cumbria','Lancashire','Merseyside','Cheshire','Derbyshire','Nottinghamshire','Leicestershire','Warwickshire','Northamptonshire','Cambridgeshire','Bedfordshire','Buckinghamshire','Oxfordshire','Gloucestershire','Bristol','Wiltshire','Berkshire','Surrey','Hertfordshire','London'],
+    ireland: ['Ireland','Republic of Ireland','Northern Ireland','Co.','County','Wexford','Waterford','Cork','Kerry','Limerick','Clare','Galway','Mayo','Sligo','Donegal','Dublin','Louth','Meath','Wicklow','Antrim','Down','Londonderry','Derry','Armagh','Tyrone','Fermanagh']
+  };
+  function inRegion(item, r){
+    if(r==='all') return true;
+    const s=((item.shortName||'')+' '+(item.title||'')).toLowerCase();
+    return REGIONS[r].some(w=>s.includes(w.toLowerCase()));
+  }
+
+  function cardHTML(it){
+    const cls = ageClass(it.launchDate);
+    const idNo = it.lifeboat_IdNo || '';
+    const className = idNo ? classFromId(idNo) : '';
+    let classHtml = className ? escapeHtml(className) : '';
+    if (className && CLASS_LINKS[className]) classHtml =
+      '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
+    const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';
+    const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
+    const location = ((it.title||'').includes(',') ? it.title.split(',').slice(1).join(',') : '').trim();
+    const mapsQ = encodeURIComponent('RNLI '+(it.shortName||''));
+    const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+
+    return `
+      <div class="card ${cls}">
+        <div class="meta">
+          <div class="left">
+            <div class="label">Lifeboat</div>
+            <div class="title">${escapeHtml(it.shortName || 'Unknown')}</div>
+            ${boatLine}
+          </div>
+          <div class="rightTop">
+            <div>${relTime(it.launchDate)}</div>
+            <div style="color:#666">${new Date(it.launchDate).toLocaleTimeString()}</div>
+          </div>
+        </div>
+        <div class="desc">${escapeHtml(it.title || '')}</div>
+        <div class="row2">
+          <div class="loc">${escapeHtml(location)}</div>
+          <div class="right">
+            <div class="status"><span class="dot"></span>${statusText(it.launchDate)}</div>
+            <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderGroups(items){
+    const groups={Today:[],Yesterday:[],Earlier:[]};
+    items.forEach(x=> groups[dayLabel(x.launchDate)].push(x));
+    const sections = ['Today','Yesterday','Earlier'].map(label=>{
+      const arr = groups[label] || [];
+      if (!arr.length) return '';
+      return `<section class="day"><h2>${label}</h2><div class="grid">${arr.map(cardHTML).join('')}</div></section>`;
+    }).join('');
+    els.days.innerHTML = sections || `<div class="empty">No older launches yet — check back soon.</div>`;
+  }
+
+  function renderLoading(){
+    els.days.innerHTML =
+      `<section class="day"><h2>Loading…</h2><div class="grid">${
+        Array.from({length:6}).map(()=>'<div class="skeleton"></div>').join('')
+      }</div></section>`;
+  }
+
+  function updateRegionCounts(baseItems){
+    const counts = {
+      all: baseItems.length,
+      wales: baseItems.filter(x=>inRegion(x,'wales')).length,
+      scotland: baseItems.filter(x=>inRegion(x,'scotland')).length,
+      england: baseItems.filter(x=>inRegion(x,'england')).length,
+      ireland: baseItems.filter(x=>inRegion(x,'ireland')).length
+    };
+    Object.keys(counts).forEach(k=>{
+      els.counts[k].textContent = counts[k] ? counts[k] : '';
+      const btn = els.regionSeg.querySelector('button[data-region="'+k+'"]');
+      if (!btn) return;
+      btn.style.display = (k!=='all' && counts[k]===0) ? 'none' : '';
+    });
+  }
+
+  function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+
+  async function load(){
+    renderLoading();
+    const params = new URLSearchParams({ page, page_size: size });
+    const qv = els.q.value.trim();
+    if (qv) params.set('search', qv);
+    if (includeYesterday) params.set('include_yesterday', '1'); // 👈 forward flag to PHP
+
+    const res = await fetch('archive_feed.php?' + params.toString(), { cache:'no-cache' });
+    if (!res.ok) { els.days.innerHTML = '<div class="empty">Failed to load archive.</div>'; return; }
+    const j = await res.json();
+    const baseItems = j.items || [];
+
+    updateRegionCounts(baseItems);
+    const items = baseItems.filter(x=>inRegion(x, region));
+
+    renderGroups(items);
+
+    els.meta.textContent = `Page ${j.meta.page} · Showing ${items.length} of ${baseItems.length} on this page · Total ${j.meta.total}`;
+    els.prev.disabled = !j.meta.has_prev;
+    els.next.disabled = !j.meta.has_next;
+
+    const url = new URL(location.href);
+    url.searchParams.set('page', page);
+    qv ? url.searchParams.set('search', qv) : url.searchParams.delete('search');
+    url.searchParams.set('region', region);
+    includeYesterday ? url.searchParams.set('include_yesterday','1') : url.searchParams.delete('include_yesterday'); // 👈 persist
+    history.replaceState(null,'',url);
+  }
+
+  // Wire up (instant search like live)
+  els.prev.addEventListener('click', ()=>{ if (page>1){ page--; load(); }});
+  els.next.addEventListener('click', ()=>{ page++; load(); });
+  els.q.addEventListener('input', debounce(()=>{ page=1; load(); }, 200));
+  els.q.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); }});
+  els.regionSeg.addEventListener('click', (e)=>{
+    const b = e.target.closest('button[data-region]'); if(!b) return;
+    els.regionSeg.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    region = b.dataset.region; page=1; load();
+  });
+
+  // Boot: restore from URL (including include_yesterday flag)
+  const u = new URL(location.href);
+  page = Math.max(1, parseInt(u.searchParams.get('page')||'1',10));
+  includeYesterday = u.searchParams.get('include_yesterday') === '1'; // 👈 read flag
+  els.q.value = u.searchParams.get('search')||'';
+  region = u.searchParams.get('region') || 'all';
+  const activeBtn = els.regionSeg.querySelector('button[data-region="'+region+'"]') || els.regionSeg.querySelector('button[data-region="all"]');
+  activeBtn.classList.add('active');
+
+  load();
+})();
+</script>
+</body>
+</html>

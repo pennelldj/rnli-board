@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RNLI Live Launch Board</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg:#0b0f14; --card:#ffffff10; --border:#ffffff1a; --muted:#ffffff80; --muted2:#ffffff66;
+    --brand:#f28b00; --danger:#ef4444; --ok:#22c55e; --amber:#FFD100; --link:#f28b00;
+  }
+  *{ box-sizing:border-box }
+  body{ margin:0; background:var(--bg); color:#fff; font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial }
+  a{ color:var(--link); text-decoration:none }
+  a:hover{ text-decoration:underline }
+  .container{ max-width:1100px; margin:0 auto; padding:24px 16px 48px }
+
+  h1{ margin:0; font-size:clamp(24px,3.2vw,34px); letter-spacing:-0.01em }
+  .sub{ color:var(--muted2); margin-top:6px }
+
+  .toolbar{ margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+  input[type="text"]{ background:#ffffff0d; border:1px solid var(--border); color:#fff; border-radius:12px; padding:10px 12px; outline:none; min-width:240px }
+  input::placeholder{ color:#ffffff55 }
+  .btn{ background:#ffffff0d; border:1px solid var(--border); color:#fff; border-radius:12px; padding:10px 12px; cursor:pointer }
+  .seg{ display:inline-flex; border:1px solid var(--border); border-radius:12px; overflow:hidden }
+  .seg button{ background:#ffffff0d; border:0; color:#fff; padding:8px 12px; cursor:pointer }
+  .seg button+button{ border-left:1px solid var(--border) }
+  .seg .active{ background:#2563eb22; outline:1px solid #2563eb55 }
+  .status-active {
+  display: inline-block;
+  background: #16a34a;   /* Tailwind’s green-600 */
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+  /* Banner (ticker) */
+  .banner{
+    margin-top:18px; border:1px solid #f59e0b55; background:#f59e0b1a; color:#ffdca8;
+    border-radius:14px; padding:12px 40px 12px 14px;
+    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    overflow:hidden; box-shadow:0 10px 30px #00000040;
+    display:block; position:relative;
+  }
+  .banner .close{
+    position:absolute; right:8px; top:6px; background:transparent; color:#ffdca8;
+    border:0; font-size:18px; line-height:1; cursor:pointer; opacity:.7
+  }
+  .banner .close:hover{ opacity:1 }
+
+  /* Always-blinking cursor */
+  .cursor{ display:inline-block; animation: blink 0.6s steps(2,start) infinite }
+  @keyframes blink { 50%{opacity:0} }
+
+  .alert{ margin-top:12px; border:1px solid #ef444455; background:#ef44441a; color:#fecaca; padding:10px 12px; border-radius:12px; display:none }
+
+  /* Grid & cards */
+  .day{ margin-top:24px }
+  .day h2{ margin:0 0 10px; font-size:16px; font-weight:600; color:#cbd5e1; text-transform:uppercase }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:14px; margin-top:12px }
+
+  .card{ background:var(--card); border:1px solid var(--border); border-radius:18px; padding:14px; transition:background .2s }
+  .card:hover{ background:#ffffff12 }
+  .meta{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start }
+  .left{ flex:1 1 0; min-width:0 }
+  .rightTop{ flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; text-align:right; max-width:45%; font-size:13px; color:#aaa }
+  .label{ font-size:12px; text-transform:uppercase; color:#ffffff99; letter-spacing:.06em }
+  .title{ margin-top:4px; font-size:18px; font-weight:700 }
+  .desc{ margin-top:8px; color:#fff }
+  .row2{ margin-top:10px; display:flex; justify-content:space-between; align-items:flex-start; font-size:12px; color:#ffffff99; gap:10px }
+  .loc{ flex:1 1 auto; min-width:0; margin-bottom:2px }
+  .right{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; text-align:right; max-width:60% }
+  .status{ white-space:nowrap; display:flex; align-items:center; gap:8px; margin-top:4px }
+  .links{ display:inline-flex; flex-wrap:wrap; gap:12px }
+
+  .dot{ width:10px; height:10px; border-radius:999px; margin-right:5px; display:inline-block; animation:pulse 1.2s infinite }
+  @keyframes pulse{ 0%{ transform:scale(.9); opacity:.6 } 70%{ transform:scale(1.2); opacity:1 } 100%{ transform:scale(.9); opacity:.6 } }
+
+  /* Recency colour accents */
+  .recent .dot{ background:#22c55e }
+  .today  .dot{ background:var(--amber) }
+  .older  .dot{ background:#64748b }
+  .card.recent{ border-color:#22c55e55 }
+  .card.today{  border-color:rgba(255,209,0,.35) }
+  .card.older{  border-color:#64748b55 }
+
+  .empty{ margin-top:24px; padding:16px; text-align:center; color:#94a3b8; font-size:15px }
+
+  footer{ color:#ffffff66; font-size:12px; margin-top:18px }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>RNLI Live Launch Board</h1>
+    <div class="sub">Live callouts with a pinned ticker and gentle refresh.</div>
+    <div class="toolbar">
+      <input id="filter" type="text" placeholder="Search station…" />
+      <div class="seg" id="regionSeg">
+        <button data-region="ALL" class="active">All</button>
+        <button data-region="WALES">Wales</button>
+        <button data-region="SCOTLAND">Scotland</button>
+        <button data-region="ENGLAND">England</button>
+        <button data-region="IRELAND">Ireland</button>
+      </div>
+      <div class="seg" id="activeSeg">
+        <button data-mins="20">20m</button>
+        <button data-mins="45" class="active">45m</button>
+        <button data-mins="60">60m</button>
+      </div>
+      <button id="toggleSound" class="btn">Sound: OFF</button>
+      <a href="archive.html?include_yesterday=1" class="btn" style="margin-left:auto">View archive →</a>
+    </div>
+  </header>
+
+  <!-- Pinned ticker -->
+  <div id="banner" class="banner" role="status" aria-live="polite" aria-atomic="true">
+    <button id="closeBanner" class="close" title="Hide">×</button>
+    <span id="bannerText">SHOUT: <span class="cursor">▌</span></span>
+  </div>
+  <div id="error" class="alert" role="alert"></div>
+
+  <section id="days"></section>
+  <footer><span id="lastUpdate"></span></footer>
+</div>
+
+<script>
+(() => {
+  // Endpoints
+  const API_DIRECT = 'https://services.rnli.org/api/launches?numberOfShouts=25';
+  const API_PROXY  = 'proxy.php?url=' + encodeURIComponent(API_DIRECT);
+  const USE_PROXY_ONLY = true; // always prefer proxy to avoid CORS
+
+  // Elements
+  const els = {
+    days: document.getElementById('days'),
+    banner: document.getElementById('banner'),
+    bannerText: document.getElementById('bannerText'),
+    closeBanner: document.getElementById('closeBanner'),
+    error: document.getElementById('error'),
+    filter: document.getElementById('filter'),
+    regionSeg: document.getElementById('regionSeg'),
+    activeSeg: document.getElementById('activeSeg'),
+    toggleSound: document.getElementById('toggleSound'),
+    lastUpdate: document.getElementById('lastUpdate'),
+  };
+
+  // State
+  let data = [];
+  let backoff = 0;             // ms; grows on real failures
+  let nextTimer = null;        // handle for scheduled next load
+  let region = 'ALL';
+  let ACTIVE_WINDOW = 45 * 60 * 1000; // default 45m
+  let lastTickerId = null;
+  let soundOn = false;
+
+  // Stability helpers
+  let isLoading = false;   // prevent overlapping loads
+  let failStreak = 0;      // only show error after 2 consecutive real failures
+
+  // Utils
+  function relTime(iso){
+    if (!iso) return '';
+    const s = Math.floor((Date.now() - new Date(iso).getTime())/1000);
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s/60); if (m < 60) return m + 'm ago';
+    const h = Math.floor(m/60); if (h < 24) return h + 'h ago';
+    const d = Math.floor(h/24); return d + 'd ago';
+  }
+  function dayLabel(iso){
+    const d = new Date(iso); const today = new Date(); today.setHours(0,0,0,0);
+    const that = new Date(d); that.setHours(0,0,0,0);
+    const diff = Math.round((today - that) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Yesterday';
+    return 'Earlier';
+  }
+  function ageClass(iso){
+    const h = (Date.now() - new Date(iso).getTime())/3600000;
+    if (h < 1) return 'recent';
+    if (h < 24) return 'today';
+    return 'older';
+  }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // Region detection from station + title
+  const REGIONS = {
+    WALES: ['Anglesey','Gwynedd','Conwy','Denbighshire','Flintshire','Wrexham','Powys','Ceredigion','Pembrokeshire','Carmarthenshire','Swansea','Neath Port Talbot','Bridgend','Vale of Glamorgan','Cardiff','Rhondda','Cynon','Taf','Merthyr Tydfil','Caerphilly','Blaenau Gwent','Torfaen','Monmouthshire','Newport','Wales'],
+    SCOTLAND: ['Scotland','Highland','Orkney','Shetland','Aberdeenshire','Moray','Argyll','Bute','Fife','Dundee','Angus','Perth','Kinross','Ayrshire','Lanarkshire','Lothian','Borders','Inverclyde','Renfrewshire'],
+    ENGLAND: ['England','Cornwall','Devon','Dorset','Somerset','Hampshire','Sussex','Kent','Essex','Norfolk','Suffolk','Lincolnshire','Yorkshire','Northumberland','Tyne and Wear','Cleveland','Cumbria','Lancashire','Merseyside','Cheshire','Derbyshire','Nottinghamshire','Leicestershire','Warwickshire','Northamptonshire','Cambridgeshire','Bedfordshire','Buckinghamshire','Oxfordshire','Gloucestershire','Bristol','Wiltshire','Berkshire','Surrey','Hertfordshire','London'],
+    IRELAND: ['Ireland','Republic of Ireland','Northern Ireland','Co.','County','Wexford','Waterford','Cork','Kerry','Limerick','Clare','Galway','Mayo','Sligo','Donegal','Dublin','Louth','Meath','Wicklow','Antrim','Down','Londonderry','Derry','Armagh','Tyrone','Fermanagh']
+  };
+  function entryRegion(e){
+    const s = ((e.stationName||'') + ' ' + (e.description||'') + ' ' + (e.location||'') + ' ' + (e.title||'')).toLowerCase();
+    for (const k of ['WALES','SCOTLAND','ENGLAND','IRELAND']){
+      if (REGIONS[k].some(w => s.includes(w.toLowerCase()))) return k;
+    }
+    return 'ENGLAND'; // default bias if unknown
+  }
+
+  // Boat class links (based on operational number pattern)
+  const CLASS_LINKS={
+    'D-class Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/d-class-lifeboat',
+    'Atlantic (B-class) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/b-class-lifeboat',
+    'E-class (Thames) Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/e-class-lifeboat',
+    'Hovercraft':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/rescue-hovercraft',
+    'Shannon class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/shannon-class-lifeboat',
+    'Severn class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/severn-class-lifeboat',
+    'Tamar class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/tamar-class-lifeboat',
+    'Trent class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/trent-class-lifeboat',
+    'Mersey class All-Weather':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/mersey-class-lifeboat',
+    'XP-class':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/inshore-rescue-boat'
+  };
+  function classFromId(op){
+    if(!op) return '';
+    op=String(op).trim().toUpperCase();
+    if(/^D-\d+/.test(op))  return 'D-class Inshore';
+    if(/^B-\d+/.test(op))  return 'Atlantic (B-class) Inshore';
+    if(/^E-\d+/.test(op))  return 'E-class (Thames) Inshore';
+    if(/^H-\d+/.test(op))  return 'Hovercraft';
+    if(/^XP-?\d+/.test(op))return 'XP-class';
+    if(/^13-\d+/.test(op)) return 'Shannon class All-Weather';
+    if(/^17-\d+/.test(op)) return 'Severn class All-Weather';
+    if(/^16-\d+/.test(op)) return 'Tamar class All-Weather';
+    if(/^14-\d+/.test(op)) return 'Trent class All-Weather';
+    if(/^12-\d+/.test(op)) return 'Mersey class All-Weather';
+    return '';
+  }
+
+  // Build a card
+  function cardHTML(l){
+    const cls = ageClass(l.timeStamp);
+    const idNo = l.lifeboat_IdNo || '';
+    const className = idNo ? classFromId(idNo) : '';
+    let classHtml = className ? escapeHtml(className) : '';
+    if (className && CLASS_LINKS[className]) {
+      classHtml = '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" style="color:#9ca3af;text-decoration:underline;text-underline-offset:2px">'+classHtml+'</a>';
+    }
+    const boatLine = idNo ? '<div style="font-size:13px;color:#9ca3af;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px">'+(classHtml?classHtml:'')+'<span style="flex:0 0 100%">('+escapeHtml(idNo)+')</span></div>' : '';
+
+    const link = l.website ? `<a href="https://${l.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
+    const mapsQ = encodeURIComponent('RNLI '+(l.stationName||''));
+    const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+
+    const active = (Date.now() - new Date(l.timeStamp).getTime()) < ACTIVE_WINDOW;
+    const status = active ? 'Active' : (
+      dayLabel(l.timeStamp)==='Today' ? 'Launched (today)' :
+      dayLabel(l.timeStamp)==='Yesterday' ? 'Launched (yesterday)' : 'Launched (earlier)'
+    );
+
+    return `
+    <div class="card ${cls}">
+      <div class="meta">
+        <div class="left">
+          <div class="label">Lifeboat</div>
+          <div class="title">${escapeHtml(l.stationName)}</div>
+          ${boatLine}
+        </div>
+        <div class="rightTop">
+          <div>${relTime(l.timeStamp)}</div>
+          <div style="color:#666">${new Date(l.timeStamp).toLocaleTimeString()}</div>
+        </div>
+      </div>
+    <div class="desc">${escapeHtml(l.description || '')}</div>
+      <div class="row2">
+        <div class="loc">${escapeHtml(l.location||'')}</div>
+        <div class="right">
+       <div class="status">
+  <span class="dot" style="margin-right:5px"></span>
+  ${status === 'Active' ? `<span class="status-active">${status}</span>` : status}
+</div>
+          <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ---- Ticker helpers ----
+  function typeTicker(rest){
+    const prefix = 'SHOUT: ';
+    const full   = prefix + (rest || '');
+    let i = prefix.length; // start typing AFTER "SHOUT: "
+    const cursor = '<span class="cursor">▌</span>';
+    els.bannerText.innerHTML = prefix + cursor; // initial
+
+    const iv = setInterval(()=>{
+      i++;
+      const chunk = escapeHtml(full.slice(0, i));
+      els.bannerText.innerHTML = chunk + ' ' + cursor;
+      if (i >= full.length){
+        clearInterval(iv);
+        els.bannerText.innerHTML = escapeHtml(full) + ' ' + cursor; // keep cursor
+      }
+    }, 18);
+  }
+  function setTickerText(rest){
+    const prefix = 'SHOUT: ';
+    const cursor = '<span class="cursor">▌</span>';
+    els.bannerText.innerHTML = escapeHtml(prefix + (rest||'')) + ' ' + cursor;
+  }
+
+  // Normalise RNLI API → our fields
+  function normalize(list){
+    if (!Array.isArray(list)) return [];
+    return list.map(x=>({
+      id: x.id || x.cOACS || Math.random().toString(36).slice(2),
+      stationName: x.shortName || 'Unknown',
+      timeStamp: x.launchDate || new Date().toISOString(),
+      description: x.title || '',
+      location: (x.title||'').includes(',') ? (x.title||'').split(',').slice(1).join(',').trim() : '',
+      website: x.website || '',
+      lifeboat_IdNo: x.lifeboat_IdNo || ''
+    }));
+  }
+
+  // Fetch helper with proxy
+  async function fetchCleanJSON(){
+    const url = USE_PROXY_ONLY ? API_PROXY : API_DIRECT;
+    const res = await fetch(url, { cache:'no-cache', redirect:'follow' });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    return res.json();
+  }
+
+  // Region button visibility (hide zero-count regions except ALL)
+  function updateRegionButtonsFor(list){
+    const counts = {
+      ALL: list.length,
+      WALES: list.filter(l => entryRegion(l)==='WALES').length,
+      SCOTLAND: list.filter(l => entryRegion(l)==='SCOTLAND').length,
+      ENGLAND: list.filter(l => entryRegion(l)==='ENGLAND').length,
+      IRELAND: list.filter(l => entryRegion(l)==='IRELAND').length
+    };
+    ['WALES','SCOTLAND','ENGLAND','IRELAND'].forEach(key=>{
+      const btn = els.regionSeg.querySelector('button[data-region="'+key+'"]');
+      if (btn) btn.style.display = counts[key]===0 ? 'none' : '';
+    });
+  }
+
+  // Render board
+  function render(){
+    const q = (els.filter.value||'').trim().toLowerCase();
+    const all = data.slice().sort((a,b)=> new Date(b.timeStamp) - new Date(a.timeStamp));
+
+    // Live shows only Today + Yesterday
+    let base = all.filter(l => {
+      const d = dayLabel(l.timeStamp);
+      return d === 'Today' || d === 'Yesterday';
+    });
+
+    // Text filter
+    if (q) base = base.filter(l => [l.stationName, l.description, l.location].some(v => (v||'').toLowerCase().includes(q)));
+
+    // Update region buttons based on pre-region list
+    updateRegionButtonsFor(base);
+
+    // Apply region selection to what we actually display
+    const list = (region === 'ALL') ? base : base.filter(l => entryRegion(l) === region);
+
+    // Group + render
+    const groups = { Today:[], Yesterday:[] };
+    for (const item of list){ groups[dayLabel(item.timeStamp)]?.push(item); }
+
+    const html = ['Today','Yesterday'].map(label=>{
+      const items = groups[label] || [];
+      if (!items.length) return '';
+      const cards = items.map(cardHTML).join('');
+      return `<section class="day"><h2>${label}</h2><div class="grid">${cards}</div></section>`;
+    }).join('');
+
+    els.days.innerHTML = html || `<div class="empty">No launches match your filter.</div>`;
+  }
+
+  // Sound ping (must be started after user gesture)
+  let audioCtx = null;
+  function ping(){
+    try{
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type='sine'; o.frequency.value=880; g.gain.value=0.0001;
+      o.connect(g); g.connect(audioCtx.destination);
+      const now = audioCtx.currentTime;
+      g.gain.exponentialRampToValueAtTime(0.2, now+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now+0.3);
+      o.start(); o.stop(now+0.35);
+    }catch(e){}
+  }
+
+  // Keep track of first-seen to drive the ticker
+  function ensureFirstSeenFor(list){
+    if (!list.length) return;
+    const h = list[0];
+    if (h && h.id !== lastTickerId){
+      lastTickerId = h.id;
+      const rest = `${h.stationName} — ${new Date(h.timeStamp).toLocaleString()}${h.description ? ' ' + h.description : ''}`;
+      typeTicker(rest);
+      if (soundOn) ping();
+    }
+  }
+
+  // Load loop with overlap-guard + quiet aborts + backoff + localStorage persistence
+  async function load(){
+    if (isLoading) return;
+    isLoading = true;
+    els.error.style.display='none';
+    try{
+      const raw = await fetchCleanJSON();
+      const mapped = normalize(raw);
+
+      ensureFirstSeenFor(mapped);
+      data = mapped;
+      render();
+      els.lastUpdate.textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+      failStreak = 0;
+
+      // 💾 Save last good dataset for instant boot / offline fallback
+      try { localStorage.setItem('lastGoodData', JSON.stringify(mapped)); } catch(e){}
+
+      scheduleNext(true);
+    }catch(err){
+      const name = (err && err.name) ? String(err.name) : '';
+      const msg  = (err && err.message) ? String(err.message) : String(err);
+
+      if (/AbortError/i.test(name) || /aborted/i.test(msg)) { scheduleNext(false); isLoading=false; return; }
+
+      // Use fallback silently, show banner only after 2 real failures
+      const fallback = (()=>{ try { return JSON.parse(localStorage.getItem('lastGoodData')||'null'); } catch(e){ return null; } })();
+      if (fallback && Array.isArray(fallback)){
+        data = fallback;
+        render();
+      }
+      if (++failStreak >= 2){
+        els.error.textContent = 'Fetch failed, showing last good data — ' + msg;
+        els.error.style.display='block';
+        setTickerText('Showing last good data — reconnecting…');
+      }
+      scheduleNext(false);
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  // Backoff scheduler
+  function scheduleNext(ok){
+    if (nextTimer) { clearTimeout(nextTimer); nextTimer = null; }
+    if (ok){
+      backoff = 0;
+      nextTimer = setTimeout(load, 30*1000);
+    }else{
+      backoff = Math.min(backoff ? backoff*2 : 10*1000, 5*60*1000);
+      nextTimer = setTimeout(load, backoff);
+    }
+  }
+
+  // Events
+  els.filter.addEventListener('input', render);
+
+  els.regionSeg.addEventListener('click', (e)=>{
+    const b = e.target.closest('button[data-region]');
+    if (!b) return;
+    els.regionSeg.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    region = b.dataset.region || 'ALL';
+    render();
+  });
+
+  els.activeSeg.addEventListener('click', (e)=>{
+    const b = e.target.closest('button[data-mins]');
+    if (!b) return;
+    els.activeSeg.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    ACTIVE_WINDOW = parseInt(b.dataset.mins,10) * 60 * 1000;
+    render();
+  });
+
+  els.toggleSound.addEventListener('click', async ()=>{
+    soundOn = !soundOn;
+    els.toggleSound.textContent = 'Sound: ' + (soundOn ? 'ON' : 'OFF');
+    try {
+      if (!audioCtx && soundOn) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        await audioCtx.resume();
+      } else if (audioCtx && soundOn) {
+        await audioCtx.resume();
+      }
+    } catch(e){}
+  });
+
+  els.closeBanner.addEventListener('click', ()=>{ els.banner.style.display='none'; });
+
+  // ---------- BOOT ----------
+  // 1) Paint instantly from lastGoodData (if present), so we never start blank
+  (function bootFromCache(){
+    try{
+      const cached = localStorage.getItem('lastGoodData');
+      if (cached){
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length){
+          data = parsed;
+          render();
+          els.lastUpdate.textContent = 'Last updated (cached): ' + new Date().toLocaleTimeString();
+        }
+      }
+    }catch(e){}
+  })();
+
+  // 2) Start live loop
+  render(); // in case no cache, at least paints empty UI
+  load();
+})();
+</script>
+</body>
+</html>

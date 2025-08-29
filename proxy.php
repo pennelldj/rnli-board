@@ -6,22 +6,19 @@
 // de-dup set to data/seen_ids.json. File-locked for safety.
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Content-Type: application/json; charset=utf-8');
+// Tiny diagnostic so we can confirm the file is updated
+header('X-Proxy-Mode: u-support-20250829');
 
 $allowed_hosts = ['services.rnli.org'];
-if (!isset($_GET['url'])) {
-  http_response_code(400);
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode(['error' => 'Missing url']); exit;
-}
 
-// Get target URL from either ?u= (base64) or ?url= (plain/encoded)
+// ---------- Resolve target URL (u=base64 or url=plain/encoded) ----------
 if (isset($_GET['u'])) {
-    // base64url → base64
+    // Accept URL-safe base64 too
     $u = strtr(trim($_GET['u']), '-_', '+/');
     $url = base64_decode($u, true);
     if ($url === false) {
         http_response_code(400);
-        header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['error' => 'Bad base64']);
         exit;
     }
@@ -32,21 +29,18 @@ if (isset($_GET['u'])) {
     $url = trim($url);
 } else {
     http_response_code(400);
-    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['error' => 'Missing url/u']);
     exit;
 }
-// Accept either encoded or plain URLs
-if (strpos($url, '%') !== false) { $url = rawurldecode($url); }
-$url = trim($url);
+
 $parts = parse_url($url);
 if (!$parts || !isset($parts['host']) || !in_array($parts['host'], $allowed_hosts, true)) {
   http_response_code(400);
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode(['error' => 'Host not allowed']); exit;
+  echo json_encode(['error' => 'Host not allowed']);
+  exit;
 }
 
-// fetch upstream
+// ---------- Fetch upstream ----------
 $ch = curl_init();
 curl_setopt_array($ch, [
   CURLOPT_URL => $url,
@@ -63,19 +57,20 @@ $resp = curl_exec($ch);
 $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// Save successful responses into cache
+// ---------- Cache last good feed ----------
 if ($http_code === 200 && $resp !== false) {
     $dataDir = __DIR__ . '/data';
     if (!is_dir($dataDir)) @mkdir($dataDir, 0775, true);
     @file_put_contents($dataDir . '/last_live.json', $resp);
 }
 
+// Return upstream response to caller
 http_response_code($http_code);
 echo $resp;
 
-// ---- Archive tee (best-effort; runs after echo) ----
+// ---------- Archive tee (best-effort; runs after echo) ----------
 if ($resp !== false && $http_code >= 200 && $http_code < 300) {
-  $dataDir = __DIR__ . '/data';
+  $dataDir  = __DIR__ . '/data';
   $linesFile = $dataDir . '/launches.jsonl';
   $seenFile  = $dataDir . '/seen_ids.json';
 
@@ -112,13 +107,13 @@ if ($resp !== false && $http_code >= 200 && $http_code < 300) {
 
       // Minimal normalized record for archive (keeps original too)
       $norm = [
-        'id'         => $id,
-        'shortName'  => $x['shortName'] ?? '',
-        'launchDate' => $x['launchDate'] ?? null,
-        'title'      => $x['title'] ?? '',
-        'website'    => $x['website'] ?? '',
+        'id'            => $id,
+        'shortName'     => $x['shortName'] ?? '',
+        'launchDate'    => $x['launchDate'] ?? null,
+        'title'         => $x['title'] ?? '',
+        'website'       => $x['website'] ?? '',
         'lifeboat_IdNo' => $x['lifeboat_IdNo'] ?? '',
-        '_raw'       => $x
+        '_raw'          => $x
       ];
 
       // Append as JSONL line

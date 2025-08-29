@@ -1,13 +1,7 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH="/home/stiwocom/shout.stiwdio.com"
-
-    # Ensure directory exists
+    - export DEPLOYPATH="shout.stiwdio.com"
     - /bin/mkdir -p "$DEPLOYPATH"
-
-    # Copy repo contents into live folder
     - /bin/cp -a ./ "$DEPLOYPATH/"
-
-    # Write a log marker
     - /bin/echo "Deployed to $DEPLOYPATH on $(/bin/date)" > "$DEPLOYPATH/.deploy_log"

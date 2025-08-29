@@ -1,4 +1,13 @@
 ---
 deployment:
   tasks:
-    - /bin/echo "Deploy hook reached on $(/bin/date)"
+    - export DEPLOYPATH="/home/stiwocom/shout.stiwdio.com"
+
+    # Ensure directory exists
+    - /bin/mkdir -p "$DEPLOYPATH"
+
+    # Copy repo contents into live folder
+    - /bin/cp -a ./ "$DEPLOYPATH/"
+
+    # Write a log marker
+    - /bin/echo "Deployed to $DEPLOYPATH on $(/bin/date)" > "$DEPLOYPATH/.deploy_log"

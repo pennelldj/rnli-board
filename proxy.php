@@ -36,17 +36,21 @@ curl_setopt_array($ch, [
   ],
 ]);
 $resp = curl_exec($ch);
-$http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$err  = curl_error($ch);
+$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// Return upstream response to the browser
-http_response_code($http ?: 502);
-header('Content-Type: application/json; charset=utf-8');
-echo ($resp === false ? json_encode(['error'=>'Upstream error','detail'=>$err]) : $resp);
+// Save successful responses into cache
+if ($http_code === 200 && $resp !== false) {
+    $dataDir = __DIR__ . '/data';
+    if (!is_dir($dataDir)) @mkdir($dataDir, 0775, true);
+    @file_put_contents($dataDir . '/last_live.json', $resp);
+}
+
+http_response_code($http_code);
+echo $resp;
 
 // ---- Archive tee (best-effort; runs after echo) ----
-if ($resp !== false && $http >= 200 && $http < 300) {
+if ($resp !== false && $http_code >= 200 && $http_code < 300) {
   $dataDir = __DIR__ . '/data';
   $linesFile = $dataDir . '/launches.jsonl';
   $seenFile  = $dataDir . '/seen_ids.json';

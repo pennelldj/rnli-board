@@ -1,221 +1,190 @@
 <?php
 /**
- * archive_feed.php
+ * archive_feed.php (cache-first)
  *
- * - WRITE MODE (cron / manual):
- *   GET ?write=1                     -> fetch RNLI feed, merge (dedupe) into data/archive.json
- *   Returns: {"ok":true,"added":N,"total":M}
+ * WRITE MODE:
+ *   ?write=1
+ *     - Prefer local cache: ./data/last_live.json (written by proxy.php)
+ *     - Else try proxy.php?url=RNLI
+ *     - Else try direct RNLI
+ *     - Merge (dedupe) into ./data/archive.json
  *
- * - READ MODE (archive.html):
- *   GET ?page=1&per_page=50&region=all&include_yesterday=0
- *   Returns: {"page":1,"per_page":50,"total":123,"items":[...]}
- *
- * Notes:
- * - Archive file: ./data/archive.json
- * - Dedupe by "id" (falls back to cOACS if id missing)
- * - Sort newest-first by time
+ * READ MODE:
+ *   ?page=1&per_page=50&region=all&include_yesterday=0
  */
 
 declare(strict_types=1);
 error_reporting(E_ALL);
-ini_set('display_errors', '0');
+ini_set('display_errors','0');
 header('Content-Type: application/json; charset=utf-8');
 
-// ---------- Config ----------
-const API_URL        = 'https://services.rnli.org/api/launches?numberOfShouts=100';
-const ARCHIVE_DIR    = __DIR__ . '/data';
-const ARCHIVE_PATH   = ARCHIVE_DIR . '/archive.json';
-const LOCK_PATH      = __DIR__ . '/archive_writer.lock';
-const USER_AGENT     = 'RNLI-Archive/1.0 (+shout.stiwdio.com)';
+const API_URL      = 'https://services.rnli.org/api/launches?numberOfShouts=100';
+const DIR_DATA     = __DIR__ . '/data';
+const PATH_ARCHIVE = DIR_DATA . '/archive.json';
+const PATH_CACHE   = DIR_DATA . '/last_live.json';
+const PATH_LOCK    = __DIR__ . '/archive_writer.lock';
+const UA           = 'RNLI-Archive/1.1 (+shout.stiwdio.com)';
 
-// ---------- Router ----------
-$writeMode = isset($_GET['write']) && $_GET['write'] == '1';
+$write = isset($_GET['write']) && $_GET['write']=='1';
+
 try {
-  if ($writeMode) {
+  if ($write) {
     $res = write_archive();
-    echo json_encode(['ok' => true] + $res);
-    exit;
+    echo json_encode(['ok'=>true] + $res);
   } else {
     echo json_encode(read_archive());
-    exit;
   }
 } catch (Throwable $e) {
   http_response_code(500);
-  echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-  exit;
+  echo json_encode(['ok'=>false, 'error'=>$e->getMessage()]);
 }
 
-// ---------- Functions ----------
-
-/**
- * WRITE MODE: fetch RNLI, merge into archive.json with de-dup, save atomically.
- */
+/* ----------------- WRITE ----------------- */
 function write_archive(): array {
-  // Lock to prevent overlapping runs
-  $lock = @fopen(LOCK_PATH, 'c');
-  if (!$lock || !@flock($lock, LOCK_EX | LOCK_NB)) {
-    return ['ok'=>false, 'added'=>0, 'total'=>archive_count(), 'note'=>'Locked'];
+  if (!is_dir(DIR_DATA)) @mkdir(DIR_DATA, 0775, true);
+  if (!file_exists(PATH_ARCHIVE)) file_put_contents(PATH_ARCHIVE, '[]');
+
+  // Single-run lock
+  $lock = @fopen(PATH_LOCK,'c');
+  if (!$lock || !@flock($lock, LOCK_EX|LOCK_NB)) {
+    return ['added'=>0,'total'=>archive_count(),'note'=>'Locked'];
   }
 
-  // Ensure dir + file exist
-  if (!is_dir(ARCHIVE_DIR)) @mkdir(ARCHIVE_DIR, 0775, true);
-  if (!file_exists(ARCHIVE_PATH)) file_put_contents(ARCHIVE_PATH, '[]');
-
-  // Load existing
-  $existing = json_decode(@file_get_contents(ARCHIVE_PATH) ?: '[]', true);
-  if (!is_array($existing)) $existing = [];
-
-  // Build index of seen IDs
-  $seen = [];
-  foreach ($existing as $row) {
-    $rid = row_id($row);
-    if ($rid) $seen[$rid] = true;
+  // 1) Try cache first (fresh within 3 hours)
+  $raw = null; $source = 'cache';
+  if (is_readable(PATH_CACHE)) {
+    $age = time() - filemtime(PATH_CACHE);
+    if ($age <= 3*3600) {
+      $raw = json_decode(file_get_contents(PATH_CACHE), true);
+    }
   }
 
-  // Fetch new data
-  $raw = null;
-try {
-    // Try direct to RNLI
-    $raw = fetch_json(API_URL);
-} catch (Throwable $e) {
-    // Fallback via local proxy (works in your setup)
-    $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-    $host     = $_SERVER['HTTP_HOST'] ?? 'shout.stiwdio.com';
-    $proxyUrl = $scheme . $host . '/proxy.php?url=' . rawurlencode(API_URL);
-    $raw      = fetch_json($proxyUrl);
-}
+  // 2) If no cache, try local proxy
+  if (!is_array($raw)) {
+    $source = 'proxy';
+    $host   = $_SERVER['HTTP_HOST'] ?? 'shout.stiwdio.com';
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off') ? 'https://' : 'http://';
+    $proxy  = $scheme . $host . '/proxy.php?url=' . rawurlencode(API_URL);
+    try { $raw = fetch_json($proxy); } catch(Throwable $e) { $raw = null; }
+  }
+
+  // 3) If proxy fails, try direct (may 400 from RNLI)
+  if (!is_array($raw)) {
+    $source = 'direct';
+    try { $raw = fetch_json(API_URL); } catch(Throwable $e) { $raw = null; }
+  }
+
+  if (!is_array($raw)) {
+    throw new RuntimeException('No data from cache/proxy/direct');
+  }
+
   $incoming = normalize($raw);
 
-  // Merge unseen
+  // Load existing + index
+  $existing = json_decode(@file_get_contents(PATH_ARCHIVE) ?: '[]', true);
+  if (!is_array($existing)) $existing = [];
+  $seen = [];
+  foreach ($existing as $r) {
+    $id = row_id($r);
+    if ($id) $seen[$id] = true;
+  }
+
   $added = 0;
-  foreach ($incoming as $row) {
-    $rid = row_id($row);
-    if (!$rid) continue;
-    if (isset($seen[$rid])) continue;
-    $existing[] = $row;
-    $seen[$rid] = true;
+  foreach ($incoming as $r) {
+    $id = row_id($r);
+    if (!$id || isset($seen[$id])) continue;
+    $existing[] = $r;
+    $seen[$id]  = true;
     $added++;
   }
 
-  // Sort newest-first by time
-  usort($existing, function($a, $b) {
-    return strcmp($b['time'] ?? '', $a['time'] ?? '');
-  });
+  usort($existing, fn($a,$b)=>strcmp($b['time']??'', $a['time']??''));
 
-  // Atomic save
-  $tmp = ARCHIVE_PATH . '.tmp';
-  file_put_contents($tmp, json_encode($existing, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-  @rename($tmp, ARCHIVE_PATH);
+  $tmp = PATH_ARCHIVE.'.tmp';
+  file_put_contents($tmp, json_encode($existing, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+  @rename($tmp, PATH_ARCHIVE);
 
-  @flock($lock, LOCK_UN);
-  @fclose($lock);
-
-  return ['added' => $added, 'total' => count($existing)];
+  @flock($lock, LOCK_UN); @fclose($lock);
+  return ['added'=>$added, 'total'=>count($existing), 'source'=>$source];
 }
 
-/**
- * READ MODE: paginate + filter archive.
- */
+/* ----------------- READ ------------------ */
 function read_archive(): array {
-  $page     = max(1, (int)($_GET['page'] ?? 1));
-  $perPage  = min(200, max(1, (int)($_GET['per_page'] ?? 50)));
-  $region   = strtolower(trim((string)($_GET['region'] ?? 'all')));
-  $incYest  = isset($_GET['include_yesterday']) && (int)$_GET['include_yesterday'] === 1;
+  $page    = max(1, (int)($_GET['page'] ?? 1));
+  $per     = min(200, max(1, (int)($_GET['per_page'] ?? 50)));
+  $region  = strtolower(trim((string)($_GET['region'] ?? 'all')));
+  $incYest = isset($_GET['include_yesterday']) && (int)$_GET['include_yesterday']===1;
 
-  $all = json_decode(@file_get_contents(ARCHIVE_PATH) ?: '[]', true);
+  $all = json_decode(@file_get_contents(PATH_ARCHIVE) ?: '[]', true);
   if (!is_array($all)) $all = [];
 
-  // Filter region
   if ($region && $region !== 'all') {
-    $all = array_values(array_filter($all, function($r) use ($region) {
-      return region_match($r, $region);
-    }));
+    $all = array_values(array_filter($all, fn($r)=>region_match($r, $region)));
   }
 
-  // Exclude today (and yesterday unless include_yesterday=1)
-  $now      = new DateTime('now', new DateTimeZone('Europe/London'));
-  $todayStr = $now->format('Y-m-d');
-  $yestStr  = $now->modify('-1 day')->format('Y-m-d');
+  $now = new DateTime('now', new DateTimeZone('Europe/London'));
+  $today = $now->format('Y-m-d');
+  $yest  = $now->modify('-1 day')->format('Y-m-d');
 
-  $all = array_values(array_filter($all, function($r) use ($todayStr, $yestStr, $incYest) {
-    $t = $r['time'] ?? null;
+  $all = array_values(array_filter($all, function($r) use($today,$yest,$incYest){
+    $t = $r['time'] ?? '';
     if (!$t) return false;
-    $d = substr($t, 0, 10); // YYYY-MM-DD
-    if ($d === $todayStr) return false;          // drop today
-    if (!$incYest && $d === $yestStr) return false; // drop yesterday unless opted in
+    $d = substr($t,0,10);
+    if ($d === $today) return false;
+    if (!$incYest && $d === $yest) return false;
     return true;
   }));
 
-  // Ensure newest-first
-  usort($all, function($a, $b) {
-    return strcmp($b['time'] ?? '', $a['time'] ?? '');
-  });
+  usort($all, fn($a,$b)=>strcmp($b['time']??'', $a['time']??''));
 
-  // Pagination
   $total = count($all);
-  $start = ($page - 1) * $perPage;
-  $items = array_slice($all, $start, $perPage);
+  $items = array_slice($all, ($page-1)*$per, $per);
 
-  return [
-    'page'      => $page,
-    'per_page'  => $perPage,
-    'total'     => $total,
-    'items'     => $items,
-  ];
+  return ['page'=>$page, 'per_page'=>$per, 'total'=>$total, 'items'=>$items];
 }
 
-/**
- * Helpers
- */
-
+/* --------------- Helpers ----------------- */
 function fetch_json(string $url) {
   $ch = curl_init($url);
   curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT        => 20,
+    CURLOPT_TIMEOUT        => 25,
     CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_HTTPHEADER     => ['User-Agent: ' . USER_AGENT],
+    CURLOPT_HTTPHEADER     => ['User-Agent: '.UA],
   ]);
   $resp = curl_exec($ch);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $err  = curl_error($ch);
   curl_close($ch);
+
   if ($resp === false || $code !== 200) {
     throw new RuntimeException("Upstream $code: $err");
   }
-  $data = json_decode($resp, true);
-  if (!is_array($data)) throw new RuntimeException('Bad JSON from RNLI');
-  return $data;
+  $j = json_decode($resp, true);
+  if (!is_array($j)) throw new RuntimeException('Bad JSON');
+  return $j;
 }
 
-/**
- * Normalize RNLI row into archive schema.
- */
 function normalize(array $rows): array {
-  return array_values(array_map(function($x) {
-    // Some RNLI rows use cOACS; keep both and set 'id'
-    $id = $x['id']     ?? null;
-    $co = $x['cOACS']  ?? null;
-    if (!$id && $co) $id = $co;
-
+  return array_values(array_map(function($x){
+    $id  = $x['id'] ?? ($x['cOACS'] ?? null);
     $station = $x['shortName'] ?? 'Unknown';
     $time    = $x['launchDate'] ?? null;
     $title   = $x['title'] ?? '';
     $website = $x['website'] ?? '';
     $lifeboat= $x['lifeboat_IdNo'] ?? '';
 
-    // Try to tease out a location from the title (e.g., "Lyme Regis, Dorset")
     $location = '';
     if ($title && strpos($title, ',') !== false) {
       $parts = explode(',', $title);
-      array_shift($parts); // drop station name
+      array_shift($parts);
       $location = trim(implode(',', $parts));
     }
 
     return [
       'id'       => $id,
       'station'  => $station,
-      'time'     => $time,       // ISO 8601
+      'time'     => $time,
       'title'    => $title,
       'location' => $location,
       'website'  => $website,
@@ -224,65 +193,37 @@ function normalize(array $rows): array {
   }, $rows));
 }
 
-/**
- * Consistent ID getter for dedupe.
- */
 function row_id(array $r): ?string {
   if (!empty($r['id'])) return (string)$r['id'];
   if (!empty($r['cOACS'])) return (string)$r['cOACS'];
   return null;
 }
 
-/**
- * Match by UK nation regions, based on station + location + title text.
- */
 function region_match(array $r, string $region): bool {
-  $s = strtolower(trim(
-    ($r['station'] ?? '') . ' ' .
-    ($r['location'] ?? '') . ' ' .
-    ($r['title'] ?? '')
-  ));
-
-  $map = [
-    'wales' => [
-      'wales','anglesey','ynys môn','gwynedd','conwy','denbighshire','flintshire','wrexham','powys',
+  $s = strtolower(trim(($r['station']??'').' '.($r['location']??'').' '.($r['title']??'')));
+  $areas = [
+    'wales' => ['wales','anglesey','ynys môn','gwynedd','conwy','denbighshire','flintshire','wrexham','powys',
       'ceredigion','pembrokeshire','carmarthenshire','swansea','neath port talbot','bridgend',
       'vale of glamorgan','cardiff','rhondda','cynon','taf','merthyr tydfil','caerphilly',
-      'blaenau gwent','torfaen','monmouthshire','newport','barry','penarth','mumbles','tenby','barmouth','burry port','pembrey'
-    ],
-    'england' => [
-      'england','cornwall','devon','dorset','somerset','hampshire','isle of wight','kent','sussex',
-      'essex','norfolk','suffolk','lincolnshire','yorkshire','northumberland','tyne and wear',
-      'cumbria','lancashire','merseyside','cheshire','durham','berkshire','buckinghamshire',
-      'oxfordshire','cambridgeshire','gloucestershire','herefordshire','shropshire','worcestershire',
-      'warwickshire','leicestershire','rutland','derbyshire','nottinghamshire','staffordshire',
-      'west midlands','greater manchester','west yorkshire','south yorkshire','east riding',
-      'bristol','brighton','portsmouth','plymouth','lyme regis','weymouth','rnli city of london' // plus common station names
-    ],
-    'scotland' => [
-      'scotland','highland','moray','aberdeenshire','angus','fife','perth and kinross','dundee',
-      'edinburgh','lothian','glasgow','argyll','bute','western isles','na h-eileanan siar','orkney','shetland','ayrshire'
-    ],
-    'ireland' => [
-      'ireland','northern ireland','county antrim','derry','londonderry','down','armagh','tyrone','fermanagh',
-      'donegal','sligo','mayo','galway','clare','limerick','kerry','cork','waterford','wexford','dublin','wicklow','louth','meath'
-    ],
-    'channel-islands' => [
-      'channel islands','jersey','guernsey','alderney','sark','herm'
-    ],
+      'blaenau gwent','torfaen','monmouthshire','newport','barry','penarth','mumbles','tenby','barmouth','burry port','pembrey'],
+    'england' => ['england','cornwall','devon','dorset','somerset','hampshire','isle of wight','kent','sussex',
+      'essex','norfolk','suffolk','lincolnshire','yorkshire','northumberland','tyne and wear','cumbria','lancashire',
+      'merseyside','cheshire','durham','berkshire','buckinghamshire','oxfordshire','cambridgeshire','gloucestershire',
+      'herefordshire','shropshire','worcestershire','warwickshire','leicestershire','rutland','derbyshire','nottinghamshire',
+      'staffordshire','west midlands','greater manchester','west yorkshire','south yorkshire','east riding',
+      'bristol','brighton','portsmouth','plymouth','lyme regis','weymouth'],
+    'scotland' => ['scotland','highland','moray','aberdeenshire','angus','fife','perth and kinross','dundee','edinburgh','glasgow',
+      'argyll','bute','western isles','orkney','shetland','ayrshire'],
+    'ireland'  => ['ireland','northern ireland','antrim','derry','down','armagh','tyrone','fermanagh',
+      'donegal','sligo','mayo','galway','clare','limerick','kerry','cork','waterford','wexford','dublin','wicklow','louth','meath'],
+    'channel-islands' => ['jersey','guernsey','alderney','sark','herm','channel islands'],
   ];
-
-  if (!isset($map[$region])) return true; // unknown region behaves like 'all'
-  foreach ($map[$region] as $w) {
-    if (strpos($s, strtolower($w)) !== false) return true;
-  }
+  if (!isset($areas[$region])) return true;
+  foreach ($areas[$region] as $k) if (strpos($s, $k)!==false) return true;
   return false;
 }
 
-/**
- * Count helper for quick lock reply.
- */
 function archive_count(): int {
-  $j = json_decode(@file_get_contents(ARCHIVE_PATH) ?: '[]', true);
+  $j = json_decode(@file_get_contents(PATH_ARCHIVE) ?: '[]', true);
   return is_array($j) ? count($j) : 0;
 }

@@ -1,7 +1,0 @@
----
-deployment:
-  tasks:
-    - export DEPLOYPATH="shout.stiwdio.com"
-    - /bin/mkdir -p "$DEPLOYPATH"
-    - /bin/cp -a ./ "$DEPLOYPATH/"
-    - /bin/echo "Deployed to $DEPLOYPATH on $(/bin/date)" > "$DEPLOYPATH/.deploy_log"

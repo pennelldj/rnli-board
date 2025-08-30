@@ -53,7 +53,7 @@ if (isset($_GET['write']) && $_GET['write'] === '1') {
 
   // Fetch recent shouts (direct, then fallback to proxy)
   $limit   = max(25, min(500, intval($_GET['limit'] ?? 200)));
-  $rnliUrl = 'https://services.rnli.org/api/launches?numberOfShouts=' . $limit;
+$rnliUrl = 'https://services.rnli.org/api/launches?numberOfShouts=' . $limit . '&_t=' . time(); // cache-bust
 
   $json = http_get($rnliUrl);
   if ($json === false) {
@@ -120,10 +120,12 @@ if (isset($_GET['write']) && $_GET['write'] === '1') {
 
   echo json_encode([
     'ok' => true,
-    'scanned' => $scanned,
-    'eligible' => $eligible,
-    'added' => $added,
-    'total_estimate' => count($existing)
+  'scanned' => $scanned,
+  'eligible' => $eligible,
+  'added' => $added,
+  'total_estimate' => count($existing),
+  'limit_requested' => $limit,
+  'source' => isset($proxyAbs) && $json === false ? 'proxy' : 'direct'
   ]);
   exit;
 }

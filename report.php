@@ -1,12 +1,21 @@
 <?php
 // report.php — viewer for data/cron.jsonl (PHP 7 compatible)
+// Adds:
+//  - "Run archive job now" button (server-side curl trigger)
+//  - "Next cron due" tile (assumes 30-minute schedule)
 
-$TZ = 'Europe/London';
-$DATA = __DIR__ . '/data';
-$CRON = $DATA . '/cron.jsonl';
+$TZ_NAME = 'Europe/London';
+$DATA    = __DIR__ . '/data';
+$CRON    = $DATA . '/cron.jsonl';
+
+// Build local URL to archive writer (same host)
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$ARCHIVE_URL = $scheme . '://' . $host . '/archive_feed.php?write=1&limit=200';
 
 header('Content-Type: text/html; charset=utf-8');
 
+// ---------- helpers ----------
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 function parse_ts($s, $tzName){
@@ -46,7 +55,46 @@ function pill($text, $kind){
   return '<span style="display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid '.$bd.';background:'.$bg.';color:'.$fg.';font-weight:600">'.$text.'</span>';
 }
 
-// -------- query
+function link_with($key, $val){
+  $q = $_GET;
+  unset($q['page']); // reset page on filter change
+  $q[$key] = $val;
+  return '?'.http_build_query($q);
+}
+
+function curl_get($url, $timeout = 12){
+  if (!function_exists('curl_init')) return [null, 'curl not available'];
+  $ch = curl_init($url);
+  curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_CONNECTTIMEOUT => min(6, $timeout),
+    CURLOPT_TIMEOUT        => $timeout,
+    CURLOPT_USERAGENT      => 'shout-report/1.0',
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_SSL_VERIFYHOST => 0
+  ]);
+  $body = curl_exec($ch);
+  $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  $err  = curl_error($ch);
+  curl_close($ch);
+  if ($body === false || $code >= 400) return [null, "HTTP $code $err"];
+  return [$body, null];
+}
+
+// ---------- handle "Run now" ----------
+$run_now_result = null;
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['force']) && $_POST['force']=='1'){
+  list($body, $err) = curl_get($ARCHIVE_URL);
+  if ($err) {
+    $run_now_result = ['ok'=>false, 'error'=>$err];
+  } else {
+    $decoded = json_decode($body, true);
+    $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body];
+  }
+}
+
+// ---------- query ----------
 $q_status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : '';
 $q_job    = isset($_GET['job']) ? trim($_GET['job']) : '';
 $page     = max(1, (int)($_GET['page'] ?? 1));
@@ -54,17 +102,18 @@ $size     = (int)($_GET['size'] ?? 50);
 if ($size < 10) $size = 10;
 if ($size > 200) $size = 200;
 
+// ---------- data ----------
 $all = read_jsonl($CRON);
 
 // sort newest → oldest
-usort($all, function($a,$b) use ($TZ){
+usort($all, function($a,$b) use ($TZ_NAME){
   $ta = 0; $tb = 0;
-  if (isset($a['ts'])) { $d = parse_ts($a['ts'], $TZ); if ($d) $ta = $d->getTimestamp(); }
-  if (isset($b['ts'])) { $d = parse_ts($b['ts'], $TZ); if ($d) $tb = $d->getTimestamp(); }
+  if (isset($a['ts'])) { $d = parse_ts($a['ts'], $TZ_NAME); if ($d) $ta = $d->getTimestamp(); }
+  if (isset($b['ts'])) { $d = parse_ts($b['ts'], $TZ_NAME); if ($d) $tb = $d->getTimestamp(); }
   return $tb - $ta;
 });
 
-// apply filters
+// filters
 $rows = $all;
 
 if ($q_status === 'fail'){
@@ -90,6 +139,7 @@ $total_runs = count($rows);
 $total_all  = count($all);
 $succ=0; $fail=0; $sum_written=0; $sum_dur=0; $dur_count=0;
 $last_run_ts = $total_all ? ($all[0]['ts'] ?? '') : '';
+$last_run_status = $total_all ? strtolower($all[0]['status'] ?? '') : '';
 $last_nonzero_written = null;
 
 foreach ($rows as $r){
@@ -106,17 +156,19 @@ foreach ($rows as $r){
 }
 $avg_dur = $dur_count ? (int)round($sum_dur / $dur_count) : 0;
 
+// next cron (assume 30m cadence)
+$next_due_str = '—';
+if ($last_run_ts){
+  $last_dt = parse_ts($last_run_ts, $TZ_NAME);
+  if ($last_dt){
+    $next = clone $last_dt; $next->modify('+30 minutes');
+    $next_due_str = $next->format('Y-m-d H:i:s');
+  }
+}
+
 // pagination
 $start = ($page - 1) * $size;
 $paginated = array_slice($rows, $start, $size);
-
-// helper for links
-function link_with($key, $val){
-  $q = $_GET;
-  unset($q['page']); // reset page on filter change
-  $q[$key] = $val;
-  return '?'.http_build_query($q);
-}
 ?>
 <!doctype html>
 <html lang="en">
@@ -152,7 +204,7 @@ function link_with($key, $val){
   .right{float:right}
   .badge-ok{color:#86efac}
   .badge-fail{color:#fecaca}
-  footer{margin-top:18px;color:#ffffff66;font-size:12px}
+  .callout{margin:10px 0;padding:10px 12px;border-radius:12px;border:1px solid #ffffff1a;background:#ffffff0d}
 </style>
 </head>
 <body>
@@ -165,10 +217,13 @@ function link_with($key, $val){
       <div class="big">
         <?= $last_run_ts ? h($last_run_ts) : '—' ?>
         <?php
-          $latest_status = $total_all ? strtolower($all[0]['status'] ?? '') : '';
-          echo ' &nbsp; ' . ($latest_status==='ok' ? pill('ok','ok') : ($latest_status==='fail' ? pill('fail','fail') : pill('—','muted')));
+          echo ' &nbsp; ' . ($last_run_status==='ok' ? pill('ok','ok') : ($last_run_status==='fail' ? pill('fail','fail') : pill('—','muted')));
         ?>
       </div>
+    </div>
+    <div class="tile">
+      <h3>Next cron due (every 30m)</h3>
+      <div class="big"><?= h($next_due_str) ?></div>
     </div>
     <div class="tile">
       <h3>Total runs (filtered / all)</h3>
@@ -187,6 +242,20 @@ function link_with($key, $val){
       <div class="big"><?= h($sum_written) ?> &middot; <?= h($avg_dur) ?>ms</div>
     </div>
   </div>
+
+  <!-- Run now -->
+  <form method="post" class="callout">
+    <input type="hidden" name="force" value="1">
+    <button type="submit" class="btn">Run archive job now</button>
+    <span class="muted">Calls <?= h($ARCHIVE_URL) ?> and logs like cron.</span>
+  </form>
+
+  <?php if ($run_now_result !== null): ?>
+    <div class="callout mono">
+      <div><strong>Manual run result:</strong></div>
+      <pre style="white-space:pre-wrap;word-break:break-word"><?php echo h(json_encode($run_now_result, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)); ?></pre>
+    </div>
+  <?php endif; ?>
 
   <form class="filters" method="get">
     <div class="seg">
@@ -278,7 +347,7 @@ function link_with($key, $val){
   </div>
   <?php endif; ?>
 
-  <footer>Reads <code class="mono">data/cron.jsonl</code>. Timezone: <?= h($TZ) ?>.</footer>
+  <footer>Reads <code class="mono">data/cron.jsonl</code>. Writer URL: <code class="mono"><?= h($ARCHIVE_URL) ?></code>. Timezone: <?= h($TZ_NAME) ?>.</footer>
 </div>
 </body>
 </html>

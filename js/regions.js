@@ -3,20 +3,22 @@ const REGIONS = {
   wales: [
     'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
     'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
-    'porthcawl','the mumbles','tenby'
+    'porthcawl','the mumbles','tenby',
+    'gwynedd'                 // ← add
   ],
   scotland: [
-  'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
-  'moray','highland','orkney','shetland','outer hebrides','western isles',
-  'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll',
-  'grampian'   
-],
+    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
+    'moray','highland','orkney','shetland','outer hebrides','western isles',
+    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll',
+    'grampian'                // (you already added this for Macduff)
+  ],
   england: [
     'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
     'yorkshire','lancashire','merseyside','northumberland','cumbria',
     'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
     'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
-    'jersey','guernsey','alderney','isle of man'
+    'jersey','guernsey','alderney','isle of man',
+    'suffolk','hants'         // ← add
   ],
   ireland: [
     'dublin','galway','cork','belfast','londonderry','waterford',

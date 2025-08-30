@@ -40,24 +40,28 @@ function ip_addr(){
   return '0.0.0.0';
 }
 
-// --------------------- manual "run now" -------------------
-$manual_result = null;
-if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['force'] ?? '')==='1'){
+// --- Manual run (simulate cron) ---
+if (isset($_GET['run'])) {
   $t0 = microtime(true);
-
-  // Run writer in a separate PHP process: avoids vhosts/proxies/headers entirely.
-  $php = trim((string)@shell_exec('command -v php')) ?: '/usr/bin/php';
+  $php    = trim((string)@shell_exec('command -v php')) ?: '/usr/bin/php';
   $writer = $ROOT . '/archive_feed.php';
 
   if (is_file($writer) && is_readable($writer)){
-    // Build a one-liner: set GET and include the writer
-    $snippet = '$_GET["write"]=1; $_GET["limit"]=200; include "'.addslashes($writer).'";';
-    $cmd = escapeshellcmd($php) . ' -d detect_unicode=0 -r ' . escapeshellarg($snippet);
+    // Make CLI look like a normal GET request
+    $snippet = <<<'PHPCODE'
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['HTTP_HOST']      = 'shout.stiwdio.com';
+$_SERVER['REMOTE_ADDR']    = '127.0.0.1';
+$_SERVER['HTTPS']          = 'on';
+$_GET['write'] = 1;
+$_GET['limit'] = 200;
+$_GET['source'] = 'report';
+include __DIR__ . '/archive_feed.php';
+PHPCODE;
 
-    // Identify this caller in the writer (if it logs UA/IP)
+    $cmd = escapeshellcmd($php) . ' -d detect_unicode=0 -r ' . escapeshellarg($snippet) . ' 2>&1';
     putenv('SHOUT_REPORT=1');
-
-    $out = @shell_exec($cmd);
+    $out   = @shell_exec($cmd);
     $dt_ms = (int)round((microtime(true)-$t0)*1000);
 
     if ($out === null || $out === false){

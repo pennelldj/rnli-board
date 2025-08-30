@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RNLI Stats</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#ffffff80;--rnli:#f28b00}
+  body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial}
+  a{color:var(--rnli)}
+  .container{max-width:1100px;margin:0 auto;padding:24px 16px 48px}
+  h1{margin:0;font-size:28px}
+  .sub{color:#ffffff80;margin-top:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px}
+  .big{font-size:36px;font-weight:800;letter-spacing:.02em}
+  .label{color:#ffffff99;font-size:12px;text-transform:uppercase}
+  .bar{height:10px;background:#ffffff20;border-radius:6px;overflow:hidden}
+  .bar>span{display:block;height:100%;background:#f59e0b}
+  .list{margin:8px 0 0;padding:0;list-style:none}
+  .list li{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #ffffff12}
+  .spark{height:40px}
+  .pill{display:inline-block;padding:4px 10px;border:1px solid var(--border);border-radius:999px;margin-right:8px}
+  .type{margin-top:10px;color:#cbd5e1;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>RNLI Stats</h1>
+  <div class="sub">Live aggregates from the growing archive.</div>
+
+  <div id="type" class="type"></div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">Total launches</div>
+      <div id="total" class="big">0</div>
+      <div class="label" style="margin-top:8px">By region</div>
+      <div id="regions" style="margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">By class</div>
+      <ul id="classes" class="list"></ul>
+    </div>
+
+    <div class="card">
+      <div class="label">Top stations</div>
+      <ul id="stations" class="list"></ul>
+    </div>
+
+    <div class="card">
+      <div class="label">Launches by hour (UTC)</div>
+      <canvas id="byHour" class="spark"></canvas>
+      <div class="label" style="margin-top:8px">Last 7 days</div>
+      <canvas id="last7" class="spark"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+async function fetchStats(){
+  const res = await fetch('stats_feed.php', {cache:'no-cache'});
+  return res.json();
+}
+
+function odometer(el, to){
+  const start = Number(el.textContent.replace(/\D/g,'')) || 0;
+  const dur = 600; const t0 = performance.now();
+  function step(t){
+    const p = Math.min(1,(t-t0)/dur);
+    el.textContent = Math.round(start + (to-start)*p).toLocaleString();
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function typewriter(el, text){
+  let i=0; el.textContent='';
+  const iv = setInterval(()=>{ el.textContent = text.slice(0, ++i); if(i>=text.length) clearInterval(iv); }, 18);
+}
+
+function drawBars(listEl, obj){
+  const total = Object.values(obj).reduce((a,b)=>a+b,0) || 1;
+  const entries = Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  listEl.innerHTML = entries.map(([k,v])=>{
+    const pct = Math.round(100*v/total);
+    return `<li><span>${k}</span><span>${v.toLocaleString()} · ${pct}%</span></li>`;
+  }).join('');
+}
+
+function drawByRegion(container, regions){
+  const order = ['wales','scotland','england','ireland','other'];
+  container.innerHTML = order.filter(k=>regions[k]!==undefined).map(k=>{
+    const v = regions[k];
+    return `<span class="pill">${k[0].toUpperCase()+k.slice(1)}: ${v}</span>`;
+  }).join(' ');
+}
+
+function drawSpark(canvas, arr){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth, h = canvas.height = canvas.clientHeight;
+  const max = Math.max(...arr,1);
+  ctx.clearRect(0,0,w,h);
+  ctx.beginPath();
+  arr.forEach((v,i)=>{
+    const x = (i/(arr.length-1)) * (w-2) + 1;
+    const y = h - (v/max)*(h-6) - 3;
+    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2; ctx.stroke();
+}
+
+(async function(){
+  const j = await fetchStats();
+  if(!j.ok){ document.body.innerHTML = '<div style="padding:24px">Stats not available.</div>'; return; }
+
+  // headline
+  const daysSpan = Math.max(1, Math.round((new Date(j.meta.last)-new Date(j.meta.first))/86400000));
+  typewriter(document.getElementById('type'),
+    `Tracking ${j.meta.count.toLocaleString()} launches over the last ${daysSpan} days…`);
+
+  // total
+  odometer(document.getElementById('total'), j.meta.count);
+
+  // regions
+  drawByRegion(document.getElementById('regions'), j.stats.by_region);
+
+  // classes + stations
+  drawBars(document.getElementById('classes'), j.stats.by_class);
+  drawBars(document.getElementById('stations'), j.stats.top_stations);
+
+  // by hour & last 7 days
+  drawSpark(document.getElementById('byHour'), j.stats.by_hour);
+  drawSpark(document.getElementById('last7'), j.stats.last_7_days.map(d=>d.count));
+})();
+</script>
+</body>
+</html>

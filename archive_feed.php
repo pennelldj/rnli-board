@@ -11,6 +11,106 @@
 
 header('Content-Type: application/json; charset=utf-8');
 
+// --- WRITE MODE: persist >24h items to data/launches.jsonl -------------------
+if (isset($_GET['write']) && $_GET['write'] === '1') {
+  $dataDir   = __DIR__ . '/data';
+  $linesFile = $dataDir . '/launches.jsonl';
+  if (!is_dir($dataDir)) { @mkdir($dataDir, 0775, true); }
+
+  // Load existing keys (for dedupe)
+  $existing = [];
+  if (file_exists($linesFile)) {
+    $fh = fopen($linesFile, 'r');
+    if ($fh) {
+      while (($line = fgets($fh)) !== false) {
+        $o = json_decode($line, true);
+        if (!$o) continue;
+        $k = ($o['id'] ?? '') . '|' . ($o['cOACS'] ?? '') . '|' . substr(($o['launchDate'] ?? ''), 0, 16);
+        $existing[$k] = true;
+      }
+      fclose($fh);
+    }
+  }
+
+  // Fetch recent shouts (server-side). Same feed your live page uses via proxy.
+  $limit = max(25, min(500, intval($_GET['limit'] ?? 200)));
+  $rnliUrl = 'https://services.rnli.org/api/launches?numberOfShouts=' . $limit;
+  $json = @file_get_contents($rnliUrl);
+
+  // Fallback to local proxy if direct fetch is blocked
+  if ($json === false) {
+    $proxyUrl = __DIR__ . '/proxy.php?url=' . urlencode($rnliUrl);
+    $json = @file_get_contents($proxyUrl);
+  }
+  if ($json === false) {
+    http_response_code(502);
+    echo json_encode(['ok'=>false,'error'=>'fetch_failed']);
+    exit;
+  }
+
+  $list = json_decode($json, true);
+  if (!is_array($list)) {
+    http_response_code(500);
+    echo json_encode(['ok'=>false,'error'=>'bad_payload']);
+    exit;
+  }
+
+  // Cutoff: items with launchDate <= now-24h (UTC) are eligible
+  $nowUTC = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+  $cutoff = $nowUTC->sub(new DateInterval('PT24H'));
+
+  $added = 0; $scanned = 0; $eligible = 0; $out = [];
+
+  foreach ($list as $x) {
+    $scanned++;
+    $ldStr = $x['launchDate'] ?? null;
+    if (!$ldStr) continue;
+    try { $ld = new DateTimeImmutable($ldStr, new DateTimeZone('UTC')); }
+    catch (Exception $e) { continue; }
+
+    if ($ld <= $cutoff) {
+      $eligible++;
+      $key = ($x['id'] ?? '') . '|' . ($x['cOACS'] ?? '') . '|' . substr($ldStr, 0, 16);
+      if (!isset($existing[$key])) {
+        $obj = [
+          'id'            => $x['id'] ?? null,
+          'cOACS'         => $x['cOACS'] ?? null,
+          'shortName'     => $x['shortName'] ?? ($x['stationName'] ?? ''),
+          'launchDate'    => $x['launchDate'] ?? null,
+          'title'         => $x['title'] ?? ($x['location'] ?? ''),
+          'website'       => $x['website'] ?? '',
+          'lifeboat_IdNo' => $x['lifeboat_IdNo'] ?? ''
+        ];
+        $out[] = json_encode($obj, JSON_UNESCAPED_SLASHES);
+        $existing[$key] = true;
+        $added++;
+      }
+    }
+  }
+
+  // Append with a lock
+  if ($added > 0) {
+    $lock = fopen($linesFile . '.lock', 'c+');
+    if ($lock) {
+      flock($lock, LOCK_EX);
+      $fh = fopen($linesFile, 'a');
+      if ($fh) { foreach ($out as $ln) fwrite($fh, $ln . "\n"); fclose($fh); }
+      flock($lock, LOCK_UN);
+      fclose($lock);
+    }
+  }
+
+  echo json_encode([
+    'ok' => true,
+    'scanned' => $scanned,
+    'eligible' => $eligible,
+    'added' => $added,
+    'total_estimate' => count($existing)
+  ]);
+  exit;
+}
+// --- END WRITE MODE ----------------------------------------------------------
+
 $dataDir   = __DIR__ . '/data';
 $linesFile = $dataDir . '/launches.jsonl';
 

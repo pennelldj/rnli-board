@@ -566,18 +566,19 @@ if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
 
 // 1) Paint instantly from lastGoodData (if present), so we never start blank
 (function bootFromCache(){
-  try{
+  try {
     const cached = localStorage.getItem('lastGoodData');
-    if (cached){
+    if (cached) {
       const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length){
+      if (Array.isArray(parsed) && parsed.length) {
         data = parsed;
         if (window.logUnmatchedRegions) logUnmatchedRegions(parsed);
         render();
-        els.lastUpdate.textContent = 'Last updated (cached): ' + new Date().toLocaleTimeString();
+        els.lastUpdate.textContent =
+          'Last updated (cached): ' + new Date().toLocaleTimeString();
       }
     }
-  }catch(e){}
+  } catch(e) {}
 })();
 
 // 2) Start live loop

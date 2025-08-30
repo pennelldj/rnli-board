@@ -1,6 +1,6 @@
 <?php
 // report.php — compact viewer for data/cron.jsonl (newest first)
-// shows a summary, quick filters, and a paginated table!!
+// shows a summary, quick filters, and a paginated table.
 
 header('Content-Type: text/html; charset=utf-8');
 

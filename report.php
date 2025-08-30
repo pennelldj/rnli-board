@@ -253,7 +253,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
           <span> · </span>
           <span class="<?= strtolower($sum['last']['status'])==='ok' ? 'ok' : 'bad' ?>"><?=h($sum['last']['status'])?></span>
           <?php if (is_heartbeat($sum['last'])): ?>
-            <span> · <span class="heart" title="Heartbeat">❤️</span></span>
+         <span> · <span class="heart" title="Heartbeat">♥</span></span>
           <?php endif; ?>
         <?php else: ?>
           <span class="muted">No entries yet.</span>
@@ -306,11 +306,11 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
       ?>
         <tr>
           <td class="nowrap"><?=h($r['ts'] ?? '')?></td>
-          <td><span class="pill"><?=h($r['job'] ?? ($hb ? 'heartbeat' : ''))?></span></td>
+         <td><span class="pill"><?= $hb ? 'heartbeat' : h($r['job'] ?? '') ?></span></td>
           <td class="<?=$cls?>"><?=h($r['status'] ?? '')?></td>
           <td>
             <?php if ($hb): ?>
-              <span class="heart" title="Heartbeat">❤️</span>
+             <span class="heart" title="Heartbeat">♥</span>
             <?php else:
               $parts = [];
               if (isset($d['written']) || isset($d['added'])) $parts[] = 'written: ' . h((string)($d['written'] ?? $d['added']));

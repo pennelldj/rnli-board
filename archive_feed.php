@@ -8,6 +8,8 @@
 //   search  (optional; matches shortName/title/website; case-insensitive)
 //   since   (optional; ISO or YYYY-MM-DD; applied AFTER the "older than yesterday" rule)
 //   until   (optional; ISO or YYYY-MM-DD)
+//   include_yesterday=1  → include Yesterday in archive
+//   write=1              → fetch RNLI feed, persist >24h items to data/launches.jsonl
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -32,15 +34,31 @@ if (isset($_GET['write']) && $_GET['write'] === '1') {
     }
   }
 
-  // Fetch recent shouts (server-side). Same feed your live page uses via proxy.
-  $limit = max(25, min(500, intval($_GET['limit'] ?? 200)));
-  $rnliUrl = 'https://services.rnli.org/api/launches?numberOfShouts=' . $limit;
-  $json = @file_get_contents($rnliUrl);
+  // Helper: GET via cURL
+  function http_get($url) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_CONNECTTIMEOUT => 6,
+      CURLOPT_TIMEOUT => 12,
+      CURLOPT_USERAGENT => 'ShoutArchiveBot/1.0 (+https://shout.stiwdio.com)',
+      CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return ($code >= 200 && $code < 300) ? $body : false;
+  }
 
-  // Fallback to local proxy if direct fetch is blocked
+  // Fetch recent shouts (direct, then fallback to proxy)
+  $limit   = max(25, min(500, intval($_GET['limit'] ?? 200)));
+  $rnliUrl = 'https://services.rnli.org/api/launches?numberOfShouts=' . $limit;
+
+  $json = http_get($rnliUrl);
   if ($json === false) {
-    $proxyUrl = __DIR__ . '/proxy.php?url=' . urlencode($rnliUrl);
-    $json = @file_get_contents($proxyUrl);
+    $proxyAbs = 'https://shout.stiwdio.com/proxy.php?url=' . urlencode($rnliUrl);
+    $json = http_get($proxyAbs);
   }
   if ($json === false) {
     http_response_code(502);
@@ -111,6 +129,10 @@ if (isset($_GET['write']) && $_GET['write'] === '1') {
 }
 // --- END WRITE MODE ----------------------------------------------------------
 
+// ------------------------------------------------------------------
+// READER MODE — paginate and filter launches.jsonl
+// ------------------------------------------------------------------
+
 $dataDir   = __DIR__ . '/data';
 $linesFile = $dataDir . '/launches.jsonl';
 
@@ -129,7 +151,7 @@ if (!file_exists($linesFile)) {
   exit;
 }
 
-// Read all lines (OK for tens of thousands; can be indexed later)
+// Read all lines
 $lines = file($linesFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 $items = [];
 foreach ($lines as $line) {
@@ -137,16 +159,14 @@ foreach ($lines as $line) {
   if ($o) $items[] = $o;
 }
 
-// Sort newest-first by launchDate
+// Sort newest-first
 usort($items, function($a,$b){
   $ta = strtotime($a['launchDate'] ?? '1970-01-01T00:00:00Z');
   $tb = strtotime($b['launchDate'] ?? '1970-01-01T00:00:00Z');
   return $tb <=> $ta;
 });
 
-// ------------------------------------------------------------------
-// Base archive rule: ONLY items older than "yesterday 00:00" (Europe/London)
-// ------------------------------------------------------------------
+// Base archive cutoff (Europe/London midnight boundaries)
 try {
   $tz = new DateTimeZone('Europe/London');
 } catch (Exception $e) {
@@ -156,8 +176,7 @@ $now          = new DateTime('now', $tz);
 $todayStart   = (clone $now)->setTime(0,0,0);
 $yesterdayStart = (clone $todayStart)->modify('-1 day');
 
-// Archive cutoff logic: default = "earlier than yesterday 00:00"
-// If ?include_yesterday=1 is passed, then cutoff = today 00:00
+// If include_yesterday=1, allow items up to today 00:00
 $includeYesterday = isset($_GET['include_yesterday']) && $_GET['include_yesterday'] == '1';
 $cutoff = $includeYesterday ? $todayStart : $yesterdayStart;
 
@@ -173,7 +192,7 @@ $items = array_values(array_filter($items, function($x) use ($tz, $cutoff) {
   return $t < $cutoff;
 }));
 
-// Optional search filter
+// Optional search
 if ($search !== '') {
   $q = mb_strtolower($search);
   $items = array_values(array_filter($items, function($x) use ($q){
@@ -182,7 +201,7 @@ if ($search !== '') {
   }));
 }
 
-// Optional since/until filters (applied after the base rule)
+// Optional since/until
 if ($since !== '') {
   $ts = strtotime($since);
   if ($ts !== false) {

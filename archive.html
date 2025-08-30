@@ -202,12 +202,6 @@
       england: baseItems.filter(x=>inRegion(x,'england')).length,
       ireland: baseItems.filter(x=>inRegion(x,'ireland')).length
     };
-    Object.keys(counts).forEach(k=>{
-      els.counts[k].textContent = counts[k] ? counts[k] : '';
-      const btn = els.regionSeg.querySelector('button[data-region="'+k+'"]');
-      if (!btn) return;
-      btn.style.display = (k!=='all' && counts[k]===0) ? 'none' : '';
-    });
   }
 
   function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }

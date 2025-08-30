@@ -582,9 +582,11 @@ if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
 })();
 
 // 2) Start live loop
-loadStationCoords();   // ← load stations_geo.json once at boot (needed for weather pills)
-render();              // paints immediately (even if cache didn’t exist)
+loadStationCoords();   // needed for weather pills
+render();              // paints immediately
 load();                // begins the live fetch loop
+
+})(); // ← add this line to close the outer (() => { ... )
 </script>
 </body>
 </html>

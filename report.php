@@ -1,45 +1,24 @@
 <?php
-// report.php — viewer for data/cron.jsonl (PHP 7 compatible)
-// Adds a robust "Run archive job now" trigger that uses 127.0.0.1 with Host header,
-// then falls back to the public URL if needed.
+// report.php — simple cron/archiver dashboard + manual-run with CLI fallback
+// © Stiwdio Ltd 2025
 
-$TZ_NAME = 'Europe/London';
-$DATA    = __DIR__ . '/data';
-$CRON    = $DATA . '/cron.jsonl';
+// ------------------------- paths -------------------------
+$ROOT     = __DIR__;
+$DATA_DIR = $ROOT . '/data';
+$CRON_LOG = $DATA_DIR . '/cron.jsonl';  // newline-delimited JSON
 
-// Figure host + writer URLs
-$host   = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$publicArchive   = $scheme . '://' . $host . '/archive_feed.php?write=1&limit=200';
-$loopbackArchive = 'http://127.0.0.1/archive_feed.php?write=1&limit=200';
+@mkdir($DATA_DIR, 0775, true);
+if (!file_exists($CRON_LOG)) touch($CRON_LOG);
 
-header('Content-Type: text/html; charset=utf-8');
-
-// ---------- helpers ----------
-function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
-
-function parse_ts($s, $tzName){
-  if(!$s) return false;
-  try { $tz = new DateTimeZone($tzName ?: 'UTC'); } catch(Exception $e){ $tz = new DateTimeZone('UTC'); }
-  $dt = DateTime::createFromFormat('Y-m-d H:i:s', $s, $tz);
-  if ($dt instanceof DateTime) return $dt;
-  $ts = @strtotime($s);
-  if ($ts !== false) {
-    $dt = new DateTime('@'.$ts);
-    $dt->setTimezone($tz);
-    return $dt;
-  }
-  return false;
-}
-
-function read_jsonl($path){
+// ------------------------- helpers -----------------------
+function read_cron_log($file){
   $out = [];
-  if (!file_exists($path)) return $out;
-  $fh = @fopen($path, 'r');
+  if (!is_file($file)) return $out;
+  $fh = fopen($file, 'r');
   if (!$fh) return $out;
   while (($line = fgets($fh)) !== false){
     $line = trim($line);
-    if ($line==='') continue;
+    if ($line === '') continue;
     $j = json_decode($line, true);
     if (is_array($j)) $out[] = $j;
   }
@@ -47,147 +26,136 @@ function read_jsonl($path){
   return $out;
 }
 
-function pill($text, $kind){
-  $bg='#ffffff12'; $bd='#ffffff1f'; $fg='#fff';
-  if ($kind==='ok'){ $bg='#16a34a1f'; $bd='#16a34a55'; $fg='#86efac'; }
-  elseif ($kind==='fail'){ $bg='#ef44441f'; $bd='#ef444455'; $fg='#fecaca'; }
-  elseif ($kind==='muted'){ $bg='#ffffff10'; $bd='#ffffff1a'; $fg='#cbd5e1'; }
-  return '<span style="display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid '.$bd.';background:'.$bg.';color:'.$fg.';font-weight:600">'.$text.'</span>';
+function write_cron_line($file, $row){
+  $row['ts'] = $row['ts'] ?? gmdate('c'); // ISO
+  $json = json_encode($row, JSON_UNESCAPED_SLASHES);
+  file_put_contents($file, $json . "\n", FILE_APPEND | LOCK_EX);
 }
 
-function link_with($key, $val){
-  $q = $_GET;
-  unset($q['page']); // reset page when filters change
-  $q[$key] = $val;
-  return '?'.http_build_query($q);
+function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+function ip_addr(){
+  foreach (['HTTP_CF_CONNECTING_IP','HTTP_X_FORWARDED_FOR','REMOTE_ADDR'] as $k){
+    if (!empty($_SERVER[$k])) return explode(',', $_SERVER[$k])[0];
+  }
+  return '0.0.0.0';
 }
 
-// Robust curl getter (supports Host header; returns [body,error])
-function curl_get($url, $timeout = 12, $hostHeader = null){
-  if (!function_exists('curl_init')) return [null, 'curl not available'];
-  $ch = curl_init($url);
-  $headers = ['User-Agent: shout-report/1.0'];
-  if ($hostHeader) $headers[] = 'Host: '.$hostHeader;
-  curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_CONNECTTIMEOUT => min(6, $timeout),
-    CURLOPT_TIMEOUT        => $timeout,
-    CURLOPT_HTTPHEADER     => $headers,
-    CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_SSL_VERIFYHOST => 0,
-  ]);
-  $body = curl_exec($ch);
-  $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-  $err  = curl_error($ch);
-  curl_close($ch);
-  if ($body === false || $code >= 400) return [null, "HTTP $code ".trim($err)];
-  return [$body, null];
-}
+// --------------------- manual "run now" -------------------
+$manual_result = null;
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['force'] ?? '')==='1'){
+  $t0 = microtime(true);
 
-// ---------- manual trigger ("Run now") ----------
-$run_now_result = null;
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['force']) && $_POST['force']=='1'){
-  // 1) Try loopback (keeps Host header for vhost)
-  list($body, $err) = curl_get('http://127.0.0.1/archive_feed.php?write=1&limit=200', 12, $host);
+  // Run writer in a separate PHP process: avoids vhosts/proxies/headers entirely.
+  $php = trim((string)@shell_exec('command -v php')) ?: '/usr/bin/php';
+  $writer = $ROOT . '/archive_feed.php';
 
-  // If loopback failed (404 or anything), fall back to a **local CLI include** (no HTTP at all)
-  if ($err){
-    // Find PHP CLI
-    $php = trim((string)@shell_exec('command -v php')) ?: '/usr/bin/php';
-    $writer = __DIR__ . '/archive_feed.php';
-    if (is_file($writer) && is_readable($writer)) {
-      // Build a small one-liner that sets $_GET and includes the writer
-      $snippet = '$_GET["write"]=1; $_GET["limit"]=200; include "'.addslashes($writer).'";';
-      $cmd = escapeshellcmd($php) . ' -d detect_unicode=0 -r ' . escapeshellarg($snippet);
-      $out = @shell_exec($cmd);
+  if (is_file($writer) && is_readable($writer)){
+    // Build a one-liner: set GET and include the writer
+    $snippet = '$_GET["write"]=1; $_GET["limit"]=200; include "'.addslashes($writer).'";';
+    $cmd = escapeshellcmd($php) . ' -d detect_unicode=0 -r ' . escapeshellarg($snippet);
 
-      if ($out === null || $out === false) {
-        $run_now_result = ['ok'=>false, 'error'=>'CLI exec failed (no output). Tried: '.$php];
-      } else {
-        $decoded = json_decode($out, true);
-        if (is_array($decoded)) {
-          $run_now_result = $decoded;
-        } else {
-          $run_now_result = ['ok'=>false, 'error'=>'CLI returned non-JSON', 'raw'=>$out];
-        }
-      }
+    // Identify this caller in the writer (if it logs UA/IP)
+    putenv('SHOUT_REPORT=1');
+
+    $out = @shell_exec($cmd);
+    $dt_ms = (int)round((microtime(true)-$t0)*1000);
+
+    if ($out === null || $out === false){
+      $manual_result = ['ok'=>false, 'error'=>'CLI exec failed (no output)'];
+      // log failure
+      write_cron_line($CRON_LOG, [
+        'job' => 'archive_write',
+        'status' => 'fail',
+        'details' => ['error'=>'cli/no-output', 'duration_ms'=>$dt_ms],
+        'ip' => ip_addr(),
+        'ua' => ($_SERVER['HTTP_USER_AGENT'] ?? 'shout-report/1.0'),
+      ]);
     } else {
-      // Couldn’t read the writer file locally
-      $run_now_result = ['ok'=>false, 'error'=>'HTTP '.$err.'; also cannot read '.basename($writer)];
+      $decoded = json_decode($out, true);
+      if (is_array($decoded)){
+        $manual_result = $decoded;
+        // normalise a few fields for the log summary
+        $det = [
+          'written'      => $decoded['added']        ?? ($decoded['written'] ?? null),
+          'total'        => $decoded['total']        ?? null,
+          'seen_live'    => $decoded['seen_live']    ?? null,
+          'considered'   => $decoded['considered']   ?? null,
+          'duration_ms'  => $decoded['duration_ms']  ?? $dt_ms,
+          'dry'          => $decoded['dry']          ?? null,
+        ];
+        write_cron_line($CRON_LOG, [
+          'job'    => 'archive_write',
+          'status' => ($decoded['ok'] ?? false) ? 'ok' : 'fail',
+          'details'=> $det,
+          'ip'     => ip_addr(),
+          'ua'     => ($_SERVER['HTTP_USER_AGENT'] ?? 'shout-report/1.0'),
+        ]);
+      } else {
+        $manual_result = ['ok'=>false, 'error'=>'CLI returned non-JSON', 'raw'=>$out];
+        write_cron_line($CRON_LOG, [
+          'job' => 'archive_write',
+          'status' => 'fail',
+          'details' => ['error'=>'cli/non-json', 'duration_ms'=>$dt_ms],
+          'ip' => ip_addr(),
+          'ua' => ($_SERVER['HTTP_USER_AGENT'] ?? 'shout-report/1.0'),
+        ]);
+      }
     }
   } else {
-    // Loopback worked
-    $decoded = json_decode($body, true);
-    $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body];
+    $manual_result = ['ok'=>false, 'error'=>'archive_feed.php not found/readable'];
+    write_cron_line($CRON_LOG, [
+      'job' => 'archive_write',
+      'status' => 'fail',
+      'details' => ['error'=>'missing-writer'],
+      'ip' => ip_addr(),
+      'ua' => ($_SERVER['HTTP_USER_AGENT'] ?? 'shout-report/1.0'),
+    ]);
   }
 }
 
-// ---------- query ----------
-$q_status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : '';
-$q_job    = isset($_GET['job']) ? trim($_GET['job']) : '';
-$page     = max(1, (int)($_GET['page'] ?? 1));
-$size     = (int)($_GET['size'] ?? 50);
-if ($size < 10) $size = 10;
-if ($size > 200) $size = 200;
-
-// ---------- data ----------
-$all = read_jsonl($CRON);
-
-// newest first
-usort($all, function($a,$b) use ($TZ_NAME){
-  $ta = 0; $tb = 0;
-  if (isset($a['ts'])) { $d = parse_ts($a['ts'], $TZ_NAME); if ($d) $ta = $d->getTimestamp(); }
-  if (isset($b['ts'])) { $d = parse_ts($b['ts'], $TZ_NAME); if ($d) $tb = $d->getTimestamp(); }
-  return $tb - $ta;
+// ----------------------- load history ---------------------
+$rows = read_cron_log($CRON_LOG);
+// sort newest first
+usort($rows, function($a,$b){
+  return strcmp($b['ts'] ?? '', $a['ts'] ?? '');
 });
 
-$rows = $all;
+// ----------------------- filters/ui -----------------------
+$flt_status = $_GET['status'] ?? 'any';   // any | ok | fail
+$flt_job    = $_GET['job']    ?? 'archive_write';
+$page_size  = max(10, min(200, intval($_GET['page_size'] ?? 50)));
+$page       = max(1, intval($_GET['page'] ?? 1));
 
-// filters
-if ($q_status === 'fail'){
-  $tmp=[]; foreach ($rows as $r){ if (strtolower($r['status'] ?? '')==='fail') $tmp[]=$r; } $rows=$tmp;
-} elseif ($q_status === 'ok'){
-  $tmp=[]; foreach ($rows as $r){ if (strtolower($r['status'] ?? '')==='ok') $tmp[]=$r; } $rows=$tmp;
+$filtered = array_values(array_filter($rows, function($r) use ($flt_status, $flt_job){
+  if ($flt_job && isset($r['job']) && $flt_job !== '' && $r['job'] !== $flt_job) return false;
+  if ($flt_status === 'ok'   && ($r['status'] ?? '') !== 'ok')   return false;
+  if ($flt_status === 'fail' && ($r['status'] ?? '') !== 'fail') return false;
+  return true;
+}));
+
+$total_matches = count($filtered);
+$start = ($page-1)*$page_size;
+$view  = array_slice($filtered, $start, $page_size);
+
+// summary tiles
+$last = $rows[0] ?? null;
+$last_written = 0;
+if ($last && ($last['status'] ?? '')==='ok'){
+  $det = $last['details'] ?? [];
+  $last_written = intval($det['written'] ?? 0);
 }
-if ($q_job !== ''){
-  $tmp=[]; foreach ($rows as $r){ if (isset($r['job']) && strcasecmp($r['job'],$q_job)===0) $tmp[]=$r; } $rows=$tmp;
-}
-
-// summaries
-$total_runs = count($rows);
-$total_all  = count($all);
-$succ=0; $fail=0; $sum_written=0; $sum_dur=0; $dur_count=0;
-$last_run_ts = $total_all ? ($all[0]['ts'] ?? '') : '';
-$last_run_status = $total_all ? strtolower($all[0]['status'] ?? '') : '';
-$last_nonzero_written = null;
-
+$success = 0; $fail = 0; $sum_written = 0; $durations = [];
 foreach ($rows as $r){
-  $st = strtolower($r['status'] ?? '');
-  if ($st==='ok') $succ++;
-  elseif ($st==='fail') $fail++;
-
-  if (isset($r['written'])){
-    $w = (int)$r['written'];
-    $sum_written += $w;
-    if ($last_nonzero_written === null && $w > 0) $last_nonzero_written = $w;
-  }
-  if (isset($r['duration_ms'])){ $sum_dur += (int)$r['duration_ms']; $dur_count++; }
+  if (($r['status'] ?? '') === 'ok') $success++; else $fail++;
+  $w = intval(($r['details']['written'] ?? 0));
+  $sum_written += $w;
+  if (isset($r['details']['duration_ms'])) $durations[] = intval($r['details']['duration_ms']);
 }
-$avg_dur = $dur_count ? (int)round($sum_dur / $dur_count) : 0;
+$avg_duration = $durations ? round(array_sum($durations)/count($durations)) : 0;
+$total_runs   = count($rows);
 
-// next cron due (assume every 30 mins)
-$next_due_str = '—';
-if ($last_run_ts){
-  $last_dt = parse_ts($last_run_ts, $TZ_NAME);
-  if ($last_dt){ $next = clone $last_dt; $next->modify('+30 minutes'); $next_due_str = $next->format('Y-m-d H:i:s'); }
-}
-
-// pagination
-$start = ($page - 1) * $size;
-$paginated = array_slice($rows, $start, $size);
-?>
-<!doctype html>
+// ----------------------- html -----------------------------
+?><!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -195,178 +163,115 @@ $paginated = array_slice($rows, $start, $size);
 <title>Cron Report</title>
 <link rel="icon" href="data:,">
 <style>
-  :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#94a3b8}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-  a{color:#fbbf24;text-decoration:none} a:hover{text-decoration:underline}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
-  h1{margin:0 0 16px}
-  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
-  .tile{flex:1 1 220px;min-width:220px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px}
-  .tile h3{margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#cbd5e1}
-  .tile .big{font-size:18px;font-weight:700}
-  .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
-  input,select,button{background:#ffffff0d;border:1px solid var(--border);color:#fff;border-radius:12px;padding:8px 10px}
-  .btn{cursor:pointer}
-  .seg{display:inline-flex;border:1px solid var(--border);border-radius:12px;overflow:hidden}
-  .seg a{display:inline-block;padding:8px 12px;color:#fff;text-decoration:none;border-right:1px solid var(--border)}
-  .seg a:last-child{border-right:0}
-  .seg .active{background:#2563eb22;outline:1px solid #2563eb55}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:12px;border-bottom:1px solid var(--border);vertical-align:top}
-  th{color:#cbd5e1;font-weight:600;text-align:left}
-  .muted{color:var(--muted)}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-  .right{float:right}
-  .badge-ok{color:#86efac}.badge-fail{color:#fecaca}
-  .callout{margin:10px 0;padding:10px 12px;border-radius:12px;border:1px solid #ffffff1a;background:#ffffff0d}
+:root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#94a3b8;--ok:#22c55e;--fail:#ef4444;--brand:#f28b00}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial}
+a{color:#f28b00} .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 48px}
+h1{margin:0 0 14px;font-size:28px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 14px}
+.btn{background:#ffffff12;border:1px solid var(--border);color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+input,select{background:#ffffff0a;border:1px solid var(--border);color:#fff;border-radius:10px;padding:8px 10px}
+.tileRow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 18px}
+.tile{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px}
+.k{color:#cbd5e1;font-size:12px;text-transform:uppercase}
+.v{font-size:22px;margin-top:4px}
+.ok{color:var(--ok)} .fail{color:var(--fail)}
+pre{background:#00000044;border:1px solid var(--border);border-radius:12px;padding:10px;overflow:auto}
+.table{width:100%;border-collapse:collapse;margin-top:10px}
+.table th,.table td{border-bottom:1px solid var(--border);padding:10px 6px;text-align:left;font-size:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#ffffff10;border:1px solid var(--border)}
+.badge.ok{background:#09351a;border-color:#0e6b2e} .badge.fail{background:#3a0d0d;border-color:#7a1f1f}
+.foot{margin-top:18px;color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Cron Report</h1>
 
-  <div class="row">
-    <div class="tile">
-      <h3>Last run</h3>
-      <div class="big">
-        <?= $last_run_ts ? h($last_run_ts) : '—' ?>
-        <?php
-          echo ' &nbsp; ' . ($last_run_status==='ok' ? pill('ok','ok') : ($last_run_status==='fail' ? pill('fail','fail') : pill('—','muted')));
-        ?>
-      </div>
-    </div>
-    <div class="tile">
-      <h3>Next cron due (every 30m)</h3>
-      <div class="big"><?= h($next_due_str) ?></div>
-    </div>
-    <div class="tile">
-      <h3>Total runs (filtered / all)</h3>
-      <div class="big"><?= h($total_runs) ?> / <span class="muted"><?= h($total_all) ?></span></div>
-    </div>
-    <div class="tile">
-      <h3>Success / Fail</h3>
-      <div class="big"><?= ($fail>0 ? pill($succ.' / '.$fail,'fail') : pill($succ.' / '.$fail,'ok')) ?></div>
-    </div>
-    <div class="tile">
-      <h3>Last “written” count</h3>
-      <div class="big"><?= $last_nonzero_written!==null ? h($last_nonzero_written) : '0' ?></div>
-    </div>
-    <div class="tile">
-      <h3>Sum written · Avg duration</h3>
-      <div class="big"><?= h($sum_written) ?> &middot; <?= h($avg_dur) ?>ms</div>
-    </div>
-  </div>
-
-  <!-- Run now -->
-  <form method="post" class="callout">
-    <input type="hidden" name="force" value="1">
-    <button type="submit" class="btn">Run archive job now</button>
-    <span class="muted">Tries <code class="mono">http://127.0.0.1/archive_feed.php</code> (Host <?= h($host) ?>), then <?= h($publicArchive) ?>.</span>
+  <form method="post" class="controls" style="gap:12px">
+    <button class="btn" type="submit" name="force" value="1">Run archive job now</button>
+    <span class="foot">Runs <code>archive_feed.php?write=1&amp;limit=200</code> via PHP CLI and logs like cron.</span>
   </form>
 
-  <?php if ($run_now_result !== null): ?>
-    <div class="callout mono">
-      <div><strong>Manual run result:</strong></div>
-      <pre style="white-space:pre-wrap;word-break:break-word"><?php echo h(json_encode($run_now_result, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)); ?></pre>
+  <?php if ($manual_result !== null): ?>
+    <div class="tile" style="margin:12px 0">
+      <div class="k">Manual run result:</div>
+      <pre><?=h(json_encode($manual_result, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES))?></pre>
     </div>
   <?php endif; ?>
 
-  <form class="filters" method="get">
-    <div class="seg">
-      <a href="<?= h(link_with('status','')) ?>" class="<?= $q_status===''?'active':'' ?>">All</a>
-      <a href="<?= h(link_with('status','fail')) ?>" class="<?= $q_status==='fail'?'active':'' ?>">Only fails</a>
+  <div class="tileRow">
+    <div class="tile"><div class="k">Last run</div>
+      <div class="v"><?=h($last['ts'] ?? '—')?> ·
+        <?php $ls=($last['status']??'')==='ok'?'ok':'fail'; ?>
+        <span class="<?=$ls?>"><?=h($last['status'] ?? '—')?></span>
+      </div>
     </div>
+    <div class="tile"><div class="k">Total runs</div>
+      <div class="v"><?=h($total_runs)?></div>
+    </div>
+    <div class="tile"><div class="k">Success / Fail</div>
+      <div class="v"><span class="ok"><?=h($success)?></span> / <span class="fail"><?=h($fail)?></span></div>
+    </div>
+    <div class="tile"><div class="k">Last “written” count</div>
+      <div class="v"><?=h($last_written)?></div>
+      <div class="k" style="margin-top:6px">Sum written · Avg duration</div>
+      <div class="v"><?=h($sum_written)?> · <?=h($avg_duration)?>ms</div>
+    </div>
+  </div>
 
-    <label>Job
-      <input type="text" name="job" value="<?= h($q_job) ?>" placeholder="archive_write">
-    </label>
+  <form method="get" class="controls">
+    <input type="hidden" name="job" value="<?=h($flt_job)?>">
     <label>Status
       <select name="status">
-        <option value=""   <?= $q_status===''?'selected':'' ?>>Any</option>
-        <option value="ok" <?= $q_status==='ok'?'selected':'' ?>>ok</option>
-        <option value="fail" <?= $q_status==='fail'?'selected':'' ?>>fail</option>
+        <option value="any"  <?=$flt_status==='any'?'selected':''?>>Any</option>
+        <option value="ok"   <?=$flt_status==='ok'?'selected':''?>>ok</option>
+        <option value="fail" <?=$flt_status==='fail'?'selected':''?>>fail</option>
       </select>
     </label>
     <label>Page size
-      <select name="size">
-        <?php foreach([25,50,100,200] as $n): ?>
-          <option value="<?= $n ?>" <?= $size===$n?'selected':'' ?>><?= $n ?></option>
+      <select name="page_size">
+        <?php foreach([25,50,100,200] as $ps): ?>
+          <option value="<?=$ps?>" <?=$page_size===$ps?'selected':''?>><?=$ps?></option>
         <?php endforeach; ?>
       </select>
     </label>
-    <button class="btn">Apply</button>
-    <div class="right"><a href="./">Back to Live</a></div>
+    <button class="btn" type="submit">Apply</button>
+    <span class="foot">Total matches: <?=h($total_matches)?></span>
   </form>
 
-  <div class="muted" style="margin-bottom:8px">Total matches: <?= h(count($rows)) ?></div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>When</th>
-        <th>Job</th>
-        <th>Status</th>
-        <th>Details</th>
-        <th>IP / UA</th>
-      </tr>
-    </thead>
+  <table class="table">
+    <thead><tr>
+      <th>When</th><th>Job</th><th>Status</th><th>Details</th><th>IP / UA</th>
+    </tr></thead>
     <tbody>
-    <?php if (!count($paginated)): ?>
-      <tr><td colspan="5" class="muted">No entries yet.</td></tr>
-    <?php else: foreach ($paginated as $r): ?>
+    <?php if (!$view): ?>
+      <tr><td colspan="5" class="foot">No entries yet.</td></tr>
+    <?php else: foreach ($view as $r):
+      $d = $r['details'] ?? [];
+      $badge = ($r['status'] ?? '')==='ok' ? 'ok' : 'fail';
+      $detBits = [];
+      foreach (['written','total','seen_live','considered','dry','duration_ms'] as $k){
+        if (isset($d[$k])) $detBits[] = $k.': '.$d[$k];
+      }
+      $detStr = $detBits ? implode(' · ', $detBits) : '—';
+    ?>
       <tr>
-        <td class="mono"><?= h($r['ts'] ?? '—') ?></td>
-        <td><?= pill(h($r['job'] ?? '—'), 'muted') ?></td>
-        <td>
-          <?php
-            $st = strtolower($r['status'] ?? '');
-            echo $st==='ok' ? '<span class="badge-ok">ok</span>' :
-                 ($st==='fail' ? '<span class="badge-fail">fail</span>' : h($st));
-          ?>
-        </td>
-        <td class="mono">
-          <?php
-            $parts = [];
-            if (isset($r['written']))     $parts[] = 'written: '.(int)$r['written'];
-            if (isset($r['total']))       $parts[] = 'total: '.(int)$r['total'];
-            if (isset($r['seen_live']))   $parts[] = 'seen_live: '.(int)$r['seen_live'];
-            if (isset($r['considered']))  $parts[] = 'considered: '.(int)$r['considered'];
-            if (isset($r['duration_ms'])) $parts[] = 'duration_ms: '.(int)$r['duration_ms'];
-            if (isset($r['dry']))         $parts[] = 'dry: '.(int)$r['dry'];
-            echo $parts ? h(implode(' · ', $parts)) : '<span class="muted">—</span>';
-          ?>
-        </td>
-        <td class="mono">
-          <?= h($r['ip'] ?? '') ?><br>
-          <span class="muted"><?= h($r['ua'] ?? '') ?></span>
-        </td>
+        <td><?=h($r['ts'] ?? '—')?></td>
+        <td><span class="badge"><?=h($r['job'] ?? '—')?></span></td>
+        <td><span class="badge <?=$badge?>"><?=h($r['status'] ?? '—')?></span></td>
+        <td><?=h($detStr)?></td>
+        <td><?=h(($r['ip'] ?? ''))?><br><span class="foot"><?=h($r['ua'] ?? '')?></span></td>
       </tr>
     <?php endforeach; endif; ?>
     </tbody>
   </table>
 
-  <?php
-    $total_pages = max(1, (int)ceil(count($rows)/$size));
-    if ($total_pages > 1):
-      $q = $_GET;
-      $q['page'] = max(1, $page-1); $prev = '?'.http_build_query($q);
-      $q['page'] = min($total_pages, $page+1); $next = '?'.http_build_query($q);
-  ?>
-  <div class="row" style="justify-content:space-between;margin-top:12px">
-    <div>Page <?= h($page) ?> · Showing <?= h(count($paginated)) ?> / <?= h(count($rows)) ?></div>
-    <div>
-      <?php if ($page>1): ?><a class="btn" href="<?= h($prev) ?>">Prev</a><?php endif; ?>
-      <?php if ($page<$total_pages): ?><a class="btn" href="<?= h($next) ?>">Next</a><?php endif; ?>
-    </div>
-  </div>
-  <?php endif; ?>
+  <div class="foot">Page <?=h($page)?> · Showing <?=h(count($view))?> / <?=h($total_matches)?></div>
 
-  <footer>
-    Reads <code class="mono">data/cron.jsonl</code>. Writer URLs: 
-    <code class="mono"><?= h($loopbackArchive) ?></code> → 
-    <code class="mono"><?= h($publicArchive) ?></code>. Timezone: <?= h($TZ_NAME) ?>.
-  </footer>
+  <div class="foot" style="margin-top:16px">
+    Reads <code>data/cron.jsonl</code>. Manual runs use PHP CLI and append an entry to the log.
+  </div>
+  <div class="foot"><a href="./">Back to Live</a></div>
 </div>
 </body>
 </html>

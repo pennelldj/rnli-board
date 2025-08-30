@@ -166,30 +166,24 @@ usort($items, function($a,$b){
   return $tb <=> $ta;
 });
 
-// Base archive cutoff (Europe/London midnight boundaries)
-try {
-  $tz = new DateTimeZone('Europe/London');
-} catch (Exception $e) {
-  $tz = new DateTimeZone('UTC');
-}
-$now          = new DateTime('now', $tz);
-$todayStart   = (clone $now)->setTime(0,0,0);
-$yesterdayStart = (clone $todayStart)->modify('-1 day');
+// Base archive cutoff: items with launchDate <= now-24h (UTC)
+$nowUTC = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+$cutoff = $nowUTC->sub(new DateInterval('PT24H'));
 
-// If include_yesterday=1, allow items up to today 00:00
 $includeYesterday = isset($_GET['include_yesterday']) && $_GET['include_yesterday'] == '1';
-$cutoff = $includeYesterday ? $todayStart : $yesterdayStart;
+// If include_yesterday=1, relax cutoff to "today 00:00 Europe/London"
+if ($includeYesterday) {
+  try { $tz = new DateTimeZone('Europe/London'); } catch (Exception $e) { $tz = new DateTimeZone('UTC'); }
+  $todayStart   = (new DateTime('now', $tz))->setTime(0,0,0);
+  $cutoff = DateTimeImmutable::createFromMutable($todayStart)->setTimezone(new DateTimeZone('UTC'));
+}
 
-$items = array_values(array_filter($items, function($x) use ($tz, $cutoff) {
+$items = array_values(array_filter($items, function($x) use ($cutoff) {
   $ld = $x['launchDate'] ?? null;
   if (!$ld) return false;
-  try {
-    $t = new DateTime($ld);
-    $t->setTimezone($tz);
-  } catch (Exception $e) {
-    return false;
-  }
-  return $t < $cutoff;
+  try { $t = new DateTimeImmutable($ld, new DateTimeZone('UTC')); }
+  catch (Exception $e) { return false; }
+  return $t <= $cutoff; // inclusive
 }));
 
 // Optional search

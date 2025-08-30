@@ -28,6 +28,10 @@
   .seg button+button{ border-left:1px solid var(--border) }
   .seg .active{ background:#2563eb22; outline:1px solid #2563eb55 }
 
+  /* counts + mismatch badge */
+  .seg .count{ opacity:.65; margin-left:6px; font-size:12px }
+  .warn-badge{ color:#ef4444; font-weight:700; margin-left:6px }
+
   /* Weather pill */
   .wx{
     display:inline-flex;align-items:center;gap:6px;
@@ -42,7 +46,8 @@
 
   .status-active{
     display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;border: 1px solid #16a34a55;
-  background: #16a34a1f;color: #86efac;  }
+    background: #16a34a1f;color: #86efac;
+  }
 
   /* Banner (ticker) */
   .banner{
@@ -94,6 +99,9 @@
   .card.today{  border-color:rgba(255,209,0,.35) }
   .card.older{  border-color:#64748b55 }
 
+  /* highlight cards with no matched region */
+  .no-region{ border:2px dashed #ef4444 !important; background:#450a0a33 }
+
   .empty{ margin-top:24px; padding:16px; text-align:center; color:#94a3b8; font-size:15px }
 
   footer{ color:#ffffff66; font-size:12px; margin-top:18px }
@@ -107,11 +115,11 @@
     <div class="toolbar">
       <input id="filter" type="text" placeholder="Search station…" />
       <div class="seg" id="regionSeg">
-        <button data-region="ALL" class="active">All</button>
-        <button data-region="WALES">Wales</button>
-        <button data-region="SCOTLAND">Scotland</button>
-        <button data-region="ENGLAND">England</button>
-        <button data-region="IRELAND">Ireland</button>
+        <button data-region="ALL" class="active">All <span class="count" id="c_all_live"></span></button>
+        <button data-region="WALES">Wales <span class="count" id="c_wales_live"></span></button>
+        <button data-region="SCOTLAND">Scotland <span class="count" id="c_scot_live"></span></button>
+        <button data-region="ENGLAND">England <span class="count" id="c_eng_live"></span></button>
+        <button data-region="IRELAND">Ireland <span class="count" id="c_ire_live"></span></button>
       </div>
       <div class="seg" id="activeSeg">
         <button data-mins="20">20m</button>
@@ -231,6 +239,7 @@
   // Build a card
   function cardHTML(l){
     const cls = ageClass(l.timeStamp);
+    const noRegClass = (entryRegion(l) ? '' : ' no-region'); // highlight unmatched
 
     const { idNo, className, classLink } = boatInfo(l);
     let classHtml = className ? escapeHtml(className) : '';
@@ -254,7 +263,7 @@
     const wxSpan = `<span data-wx-name="${escapeHtml(l.stationName)}"></span>`;
 
     return `
-      <div class="card ${cls}">
+      <div class="card ${cls}${noRegClass}">
         <div class="meta">
           <div class="left">
             <div class="label">Lifeboat</div>
@@ -281,7 +290,7 @@
       </div>`;
   }
 
-  // ─── Weather helpers ───────────────────────────────────────────────────────────
+  // ─── Weather helpers ───────────────────────────────────────────
   const WEATHER_TTL = 5 * 60 * 1000;      // cache 5 minutes
   const weatherCache = new Map();
   let stationCoords = {};                  // lowercased: { "barry dock": [lat,lon], ... }
@@ -330,9 +339,6 @@
         stationCoords[String(k).trim().toLowerCase()] = j[k];
       });
 
-// Robust coords lookup: handles parentheses, "The ", and St./St.
-
-
       // hydrate instantly when coords are ready
       mountWeatherForVisibleCards();
     }catch(e){
@@ -347,9 +353,9 @@
     if (!keys.length) return;
 
     document.querySelectorAll('[data-wx-name]').forEach(el=>{
-     const raw = el.getAttribute('data-wx-name') || '';
-const coords = coordsForStation(raw);
-if (!coords) return;
+      const raw = el.getAttribute('data-wx-name') || '';
+      const coords = coordsForStation(raw);
+      if (!coords) return;
 
       el.innerHTML = '<span class="wx"><span class="ico">…</span><span class="t">…</span></span>';
       fetchWeatherFor(raw, coords[0], coords[1]).then(w=>{
@@ -359,35 +365,36 @@ if (!coords) return;
           `<span class="wx ready"><span class="ico">${w.icon}</span>`+
           `<span class="t">${t ?? '—'}°C${ws!=null ? ' · '+ws+' kn' : ''}</span></span>`;
       }).catch(()=>{ el.textContent=''; });
-function coordsForStation(name){
-  if (!name) return null;
-  const lc = s => String(s).trim().toLowerCase();
-
-  const base = lc(name);
-  const tries = new Set([base]);
-
-  // strip parentheses content: "Llandudno (Ormes Head)" -> "Llandudno"
-  const noParens = base.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g,' ').trim();
-  tries.add(noParens);
-
-  // drop leading "the "
-  if (noParens.startsWith('the ')) tries.add(noParens.slice(4));
-
-  // St. ↔ St
-  tries.add(noParens.replace(/\bst\.\s/g, 'st '));
-  tries.add(noParens.replace(/\bst\s/g, 'st. '));
-
-  // (Isle of Wight) ↔ (IOW)
-  tries.add(noParens.replace(/\(isle of wight\)/g, '(iow)'));
-  tries.add(noParens.replace(/\(iow\)/g, '(isle of wight)'));
-
-  for (const key of tries){
-    if (stationCoords && stationCoords[key]) return stationCoords[key];
-  }
-  return null;
-}
-
     });
+  }
+
+  // Helpers for robust coord lookup
+  function coordsForStation(name){
+    if (!name) return null;
+    const lc = s => String(s).trim().toLowerCase();
+
+    const base = lc(name);
+    const tries = new Set([base]);
+
+    // strip parentheses: "Llandudno (Ormes Head)" -> "Llandudno"
+    const noParens = base.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g,' ').trim();
+    tries.add(noParens);
+
+    // drop leading "the "
+    if (noParens.startsWith('the ')) tries.add(noParens.slice(4));
+
+    // St. ↔ St variations
+    tries.add(noParens.replace(/\bst\.\s/g, 'st '));
+    tries.add(noParens.replace(/\bst\s/g, 'st. '));
+
+    // (Isle of Wight) ↔ (IOW)
+    tries.add(noParens.replace(/\(isle of wight\)/g, '(iow)'));
+    tries.add(noParens.replace(/\(iow\)/g, '(isle of wight)'));
+
+    for (const key of tries){
+      if (stationCoords && stationCoords[key]) return stationCoords[key];
+    }
+    return null;
   }
 
   // ---- Ticker helpers ----
@@ -435,18 +442,50 @@ function coordsForStation(name){
     return res.json();
   }
 
+  // Region button visibility + counts + mismatch badge
   function updateRegionButtonsFor(list){
     const counts = {
       ALL: list.length,
-      WALES: list.filter(l => entryRegion(l)==='WALES').length,
+      WALES:    list.filter(l => entryRegion(l)==='WALES').length,
       SCOTLAND: list.filter(l => entryRegion(l)==='SCOTLAND').length,
-      ENGLAND: list.filter(l => entryRegion(l)==='ENGLAND').length,
-      IRELAND: list.filter(l => entryRegion(l)==='IRELAND').length
+      ENGLAND:  list.filter(l => entryRegion(l)==='ENGLAND').length,
+      IRELAND:  list.filter(l => entryRegion(l)==='IRELAND').length
     };
+
+    // write numbers
+    const byId = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v || ''; };
+    byId('c_all_live',  counts.ALL);
+    byId('c_wales_live',counts.WALES);
+    byId('c_scot_live', counts.SCOTLAND);
+    byId('c_eng_live',  counts.ENGLAND);
+    byId('c_ire_live',  counts.IRELAND);
+
+    // hide empty (except All)
     ['WALES','SCOTLAND','ENGLAND','IRELAND'].forEach(key=>{
       const btn = els.regionSeg.querySelector('button[data-region="'+key+'"]');
       if (btn) btn.style.display = counts[key]===0 ? 'none' : '';
     });
+
+    // mismatch badge on All (unknown regions present)
+    const sumRegions = counts.WALES + counts.SCOTLAND + counts.ENGLAND + counts.IRELAND;
+    const diff = counts.ALL - sumRegions;
+    const allBtn = els.regionSeg.querySelector('button[data-region="ALL"]');
+    if (allBtn){
+      const old = allBtn.querySelector('.warn-badge');
+      if (old) old.remove();
+      if (diff !== 0){
+        const b = document.createElement('span');
+        b.className = 'warn-badge';
+        b.textContent = `⚠ ${diff}`;
+        allBtn.appendChild(b);
+
+        // console list the unknowns (helps update regions.js)
+        const unknowns = list.filter(l => !['WALES','SCOTLAND','ENGLAND','IRELAND'].includes(entryRegion(l)));
+        if (unknowns.length){
+          console.warn('Unmatched stations (live):', unknowns.map(u => u.stationName));
+        }
+      }
+    }
   }
 
   // Render board

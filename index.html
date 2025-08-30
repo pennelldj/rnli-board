@@ -223,24 +223,32 @@
     return '';
   }
 
-  // Build a card
-  function cardHTML(l){
-    const cls = ageClass(l.timeStamp);
-    const { idNo, className, classLink } = boatInfo(l);
-let classHtml = className ? escapeHtml(className) : '';
-if (className && classLink) {
-  classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
-}
-const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';
-    const link = l.website ? `<a href="https://${l.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
-    const mapsQ = encodeURIComponent('RNLI '+(l.stationName||''));
-    const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+// Build a card
+function cardHTML(l){
+  const cls = ageClass(l.timeStamp);
 
-    const active = (Date.now() - new Date(l.timeStamp).getTime()) < ACTIVE_WINDOW;
-    const status = active ? 'Active' : (
-      dayLabel(l.timeStamp)==='Today' ? 'Launched (today)' :
-      dayLabel(l.timeStamp)==='Yesterday' ? 'Launched (yesterday)' : 'Launched (earlier)'
-    );
+  // Unified boat detection from boats.js
+  const { idNo, className, classLink } = boatInfo(l);
+
+  let classHtml = className ? escapeHtml(className) : '';
+  if (className && classLink) {
+    classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
+  }
+
+  // Always render a boat line; show "Unclassified" if we don't know the class
+  const label  = classHtml || '<span class="unknown">Unclassified</span>';
+  const idSpan = idNo ? '<span class="idNo">('+escapeHtml(idNo)+')</span>' : '';
+  const boatLine = '<div class="boat">'+label+idSpan+'</div>';
+
+  const link   = l.website ? `<a href="https://${l.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
+  const mapsQ  = encodeURIComponent('RNLI '+(l.stationName||''));
+  const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+
+  const active = (Date.now() - new Date(l.timeStamp).getTime()) < ACTIVE_WINDOW;
+  const status = active ? 'Active' : (
+    dayLabel(l.timeStamp)==='Today' ? 'Launched (today)' :
+    dayLabel(l.timeStamp)==='Yesterday' ? 'Launched (yesterday)' : 'Launched (earlier)'
+  );
 
     return `
     <div class="card ${cls}">

@@ -31,6 +31,7 @@
   .boat .classLink{color:#9ca3af;text-decoration:underline;text-underline-offset:2px}
   .boat .classLink:hover{color:#fff}
   .boat .idNo{flex:0 0 100%}
+  .boat .unknown{color:#94a3b8;font-style:italic}
   .desc{margin-top:8px;color:#fff}
   .row2{margin-top:10px;display:flex;justify-content:space-between;align-items:flex-start;font-size:12px;color:#ffffff99;gap:10px}
   .loc{flex:1 1 auto;min-width:0;margin-bottom:2px}
@@ -139,41 +140,50 @@
   return !!det && det === r;
 }
 
-  function cardHTML(it){
-    const cls = ageClass(it.launchDate);
-    const { idNo, className, classLink } = boatInfo(it);
-let classHtml = className ? escapeHtml(className) : '';
-if (className && classLink) {
-  classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
-}
-const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
-    const location = ((it.title||'').includes(',') ? it.title.split(',').slice(1).join(',') : '').trim();
-    const mapsQ = encodeURIComponent('RNLI '+(it.shortName||''));
-    const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+function cardHTML(it){
+  const cls = ageClass(it.launchDate);
 
-    return `
-      <div class="card ${cls}">
-        <div class="meta">
-          <div class="left">
-            <div class="label">Lifeboat</div>
-            <div class="title">${escapeHtml(it.shortName || 'Unknown')}</div>
-            ${boatLine}
-          </div>
-          <div class="rightTop">
-            <div>${relTime(it.launchDate)}</div>
-            <div style="color:#666">${new Date(it.launchDate).toLocaleTimeString()}</div>
-          </div>
-        </div>
-        <div class="desc">${escapeHtml(it.title || '')}</div>
-        <div class="row2">
-          <div class="loc">${escapeHtml(location)}</div>
-          <div class="right">
-            <div class="status"><span class="dot"></span>${statusText(it.launchDate)}</div>
-            <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
-          </div>
-        </div>
-      </div>`;
+  // Unified boat detection from boats.js
+  const { idNo, className, classLink } = boatInfo(it);
+
+  let classHtml = className ? escapeHtml(className) : '';
+  if (className && classLink) {
+    classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
   }
+
+  // Always render a boat line; show "Unclassified" if we don't know the class
+  const label  = classHtml || '<span class="unknown">Unclassified</span>';
+  const idSpan = idNo ? '<span class="idNo">('+escapeHtml(idNo)+')</span>' : '';
+  const boatLine = '<div class="boat">'+label+idSpan+'</div>';
+
+  const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
+  const location = ((it.title||'').includes(',') ? it.title.split(',').slice(1).join(',') : '').trim();
+  const mapsQ = encodeURIComponent('RNLI '+(it.shortName||''));
+  const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
+
+  return `
+    <div class="card ${cls}">
+      <div class="meta">
+        <div class="left">
+          <div class="label">Lifeboat</div>
+          <div class="title">${escapeHtml(it.shortName || 'Unknown')}</div>
+          ${boatLine}
+        </div>
+        <div class="rightTop">
+          <div>${relTime(it.launchDate)}</div>
+          <div style="color:#666">${new Date(it.launchDate).toLocaleTimeString()}</div>
+        </div>
+      </div>
+      <div class="desc">${escapeHtml(it.title || '')}</div>
+      <div class="row2">
+        <div class="loc">${escapeHtml(location)}</div>
+        <div class="right">
+          <div class="status"><span class="dot"></span>${statusText(it.launchDate)}</div>
+          <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
+        </div>
+      </div>
+    </div>`;
+}
 
   function renderGroups(items){
     const groups={Today:[],Yesterday:[],Earlier:[]};

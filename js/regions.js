@@ -10,7 +10,7 @@ const REGIONS = {
   scotland: [
     'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
     'moray','highland','orkney','shetland','outer hebrides','western isles',
-    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll',
+    'largs','strathclyde','portree','queensferry','skye','isle of skye','campbeltown','argyll',
     'grampian'                // (you already added this for Macduff)
   ],
   england: [

@@ -562,28 +562,28 @@ if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
 
   els.closeBanner.addEventListener('click', ()=>{ els.banner.style.display='none'; });
 
-  // ---------- BOOT ----------
-  // 1) Paint instantly from lastGoodData (if present), so we never start blank
-  (function bootFromCache(){
-    try{
-      const cached = localStorage.getItem('lastGoodData');
-      if (cached){
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length){
-          data = parsed;
-          if (window.logUnmatchedRegions) logUnmatchedRegions(parsed);
-          render();
-          els.lastUpdate.textContent = 'Last updated (cached): ' + new Date().toLocaleTimeString();
-        }
+// ---------- BOOT ----------
+
+// 1) Paint instantly from lastGoodData (if present), so we never start blank
+(function bootFromCache(){
+  try{
+    const cached = localStorage.getItem('lastGoodData');
+    if (cached){
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length){
+        data = parsed;
+        if (window.logUnmatchedRegions) logUnmatchedRegions(parsed);
+        render();
+        els.lastUpdate.textContent = 'Last updated (cached): ' + new Date().toLocaleTimeString();
       }
-    }catch(e){}
-  })();
+    }
+  }catch(e){}
+})();
 
 // 2) Start live loop
-loadStationCoords();   // ← load stations_geo.json once at boot
-render();              // in case no cache, at least paints empty UI
-load();
-})();
+loadStationCoords();   // ← load stations_geo.json once at boot (needed for weather pills)
+render();              // paints immediately (even if cache didn’t exist)
+load();                // begins the live fetch loop
 </script>
 </body>
 </html>

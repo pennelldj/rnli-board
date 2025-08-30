@@ -295,44 +295,37 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
         </tr>
       </thead>
       <tbody>
-<?php if (!count($show)): ?>
-  <tr><td colspan="5" class="muted">No entries yet.</td></tr>
-<?php else:
-  foreach ($show as $r):
-    $d = $r['details'] ?? [];
-    $status = strtolower((string)($r['status'] ?? ''));
-    $cls = ($status === 'ok') ? 'ok' : 'bad';
-
-    // Icon logic:
-    // - heartbeat is a top-level flag: heartbeat:1  -> ♥
-    // - dry can be top-level (archive_feed.php) or inside details -> ◇
-    // - otherwise assume a normal write attempt -> ◆
-    $isHeartbeat = !empty($r['heartbeat']);
-    $isDry       = !empty($r['dry']) || !empty($d['dry']);
-    $icon        = $isHeartbeat ? '♥' : ($isDry ? '◇' : '◆');
-?>
-  <tr>
-    <td class="nowrap"><?=h($r['ts'] ?? '')?></td>
-    <td><span class="pill"><?= $icon ?> <?=h($r['job'] ?? '')?></span></td>
-    <td class="<?=$cls?>"><?=h($r['status'] ?? '')?></td>
-    <td>
-      <?php
-        $parts = [];
-        if (isset($d['written']) || isset($d['added'])) $parts[] = 'written: ' . h((string)($d['written'] ?? $d['added']));
-        if (isset($d['total']))       $parts[] = 'total: ' . h((string)$d['total']);
-        if (isset($d['seen_live']))   $parts[] = 'seen_live: ' . h((string)$d['seen_live']);
-        if (isset($d['considered']))  $parts[] = 'considered: ' . h((string)$d['considered']);
-        if (isset($d['duration_ms'])) $parts[] = 'duration_ms: ' . h((string)$d['duration_ms']);
-        if (!empty($r['dry']) || !empty($d['dry'])) $parts[] = 'dry: 1';
-        if (!empty($r['heartbeat'])) $parts[] = 'heartbeat: 1';
-        if (isset($d['error']))       $parts[] = 'error: ' . h((string)$d['error']);
-        echo $parts ? implode(' · ', $parts) : '—';
+      <?php if (!count($show)): ?>
+        <tr><td colspan="5" class="muted">No entries yet.</td></tr>
+      <?php else:
+        foreach ($show as $r):
+          $d = $r['details'] ?? [];
+          $status = strtolower((string)($r['status'] ?? ''));
+          $cls = ($status === 'ok') ? 'ok' : 'bad';
+          $hb = is_heartbeat($r);
       ?>
-    </td>
-    <td class="muted"><?=h(($r['ip'] ?? '') . ' ' . ($r['ua'] ?? ''))?></td>
-  </tr>
-<?php endforeach; endif; ?>
-</tbody>
+        <tr>
+          <td class="nowrap"><?=h($r['ts'] ?? '')?></td>
+         <td><span class="pill"><?= $hb ? 'heartbeat' : h($r['job'] ?? '') ?></span></td>
+          <td class="<?=$cls?>"><?=h($r['status'] ?? '')?></td>
+          <td>
+            <?php if ($hb): ?>
+             <span class="heart" title="Heartbeat">♥</span>
+            <?php else:
+              $parts = [];
+              if (isset($d['written']) || isset($d['added'])) $parts[] = 'written: ' . h((string)($d['written'] ?? $d['added']));
+              if (isset($d['total']))       $parts[] = 'total: ' . h((string)$d['total']);
+              if (isset($d['seen_live']))   $parts[] = 'seen_live: ' . h((string)$d['seen_live']);
+              if (isset($d['considered']))  $parts[] = 'considered: ' . h((string)$d['considered']);
+              if (isset($d['duration_ms'])) $parts[] = 'duration_ms: ' . h((string)$d['duration_ms']);
+              if (isset($d['error']))       $parts[] = 'error: ' . h((string)$d['error']);
+              echo $parts ? implode(' · ', $parts) : '—';
+            endif; ?>
+          </td>
+          <td class="muted"><?=h(($r['ip'] ?? '') . ' ' . ($r['ua'] ?? ''))?></td>
+        </tr>
+      <?php endforeach; endif; ?>
+      </tbody>
     </table>
   </div>
 

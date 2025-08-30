@@ -11,7 +11,7 @@ const REGIONS = {
     'edinburgh','eyemouth','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
     'moray','highland','orkney','shetland','outer hebrides','western isles',
     'largs','strathclyde','portree','queensferry','skye','isle of skye','campbeltown','argyll',
-    'grampian'      
+    'grampian','north berwick'      
   ],
   england: [
     'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',

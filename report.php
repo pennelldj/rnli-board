@@ -1,17 +1,17 @@
 <?php
 // report.php — viewer for data/cron.jsonl (PHP 7 compatible)
-// Adds:
-//  - "Run archive job now" button (server-side curl trigger)
-//  - "Next cron due" tile (assumes 30-minute schedule)
+// Adds a robust "Run archive job now" trigger that uses 127.0.0.1 with Host header,
+// then falls back to the public URL if needed.
 
 $TZ_NAME = 'Europe/London';
 $DATA    = __DIR__ . '/data';
 $CRON    = $DATA . '/cron.jsonl';
 
-// Build local URL to archive writer (same host)
+// Figure host + writer URLs
+$host   = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$ARCHIVE_URL = $scheme . '://' . $host . '/archive_feed.php?write=1&limit=200';
+$publicArchive   = $scheme . '://' . $host . '/archive_feed.php?write=1&limit=200';
+$loopbackArchive = 'http://127.0.0.1/archive_feed.php?write=1&limit=200';
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -20,7 +20,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 function parse_ts($s, $tzName){
   if(!$s) return false;
-  $tz = @new DateTimeZone($tzName ?: 'UTC');
+  try { $tz = new DateTimeZone($tzName ?: 'UTC'); } catch(Exception $e){ $tz = new DateTimeZone('UTC'); }
   $dt = DateTime::createFromFormat('Y-m-d H:i:s', $s, $tz);
   if ($dt instanceof DateTime) return $dt;
   $ts = @strtotime($s);
@@ -57,37 +57,48 @@ function pill($text, $kind){
 
 function link_with($key, $val){
   $q = $_GET;
-  unset($q['page']); // reset page on filter change
+  unset($q['page']); // reset page when filters change
   $q[$key] = $val;
   return '?'.http_build_query($q);
 }
 
-function curl_get($url, $timeout = 12){
+// Robust curl getter (supports Host header; returns [body,error])
+function curl_get($url, $timeout = 12, $hostHeader = null){
   if (!function_exists('curl_init')) return [null, 'curl not available'];
   $ch = curl_init($url);
+  $headers = ['User-Agent: shout-report/1.0'];
+  if ($hostHeader) $headers[] = 'Host: '.$hostHeader;
   curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_FOLLOWLOCATION => true,
     CURLOPT_CONNECTTIMEOUT => min(6, $timeout),
     CURLOPT_TIMEOUT        => $timeout,
-    CURLOPT_USERAGENT      => 'shout-report/1.0',
+    CURLOPT_HTTPHEADER     => $headers,
     CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_SSL_VERIFYHOST => 0
+    CURLOPT_SSL_VERIFYHOST => 0,
   ]);
   $body = curl_exec($ch);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $err  = curl_error($ch);
   curl_close($ch);
-  if ($body === false || $code >= 400) return [null, "HTTP $code $err"];
+  if ($body === false || $code >= 400) return [null, "HTTP $code ".trim($err)];
   return [$body, null];
 }
 
-// ---------- handle "Run now" ----------
+// ---------- manual trigger ("Run now") ----------
 $run_now_result = null;
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['force']) && $_POST['force']=='1'){
-  list($body, $err) = curl_get($ARCHIVE_URL);
-  if ($err) {
-    $run_now_result = ['ok'=>false, 'error'=>$err];
+  // Prefer loopback (no CDN/reverse-proxy), keep Host header for vhost
+  list($body, $err) = curl_get($loopbackArchive, 12, $host);
+  if ($err){
+    // fallback to public URL
+    list($body2, $err2) = curl_get($publicArchive, 12, null);
+    if ($err2){
+      $run_now_result = ['ok'=>false, 'error'=>$err.'; fallback: '.$err2];
+    } else {
+      $decoded = json_decode($body2, true);
+      $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body2];
+    }
   } else {
     $decoded = json_decode($body, true);
     $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body];
@@ -105,7 +116,7 @@ if ($size > 200) $size = 200;
 // ---------- data ----------
 $all = read_jsonl($CRON);
 
-// sort newest → oldest
+// newest first
 usort($all, function($a,$b) use ($TZ_NAME){
   $ta = 0; $tb = 0;
   if (isset($a['ts'])) { $d = parse_ts($a['ts'], $TZ_NAME); if ($d) $ta = $d->getTimestamp(); }
@@ -113,25 +124,16 @@ usort($all, function($a,$b) use ($TZ_NAME){
   return $tb - $ta;
 });
 
-// filters
 $rows = $all;
 
+// filters
 if ($q_status === 'fail'){
-  $tmp = [];
-  foreach ($rows as $r){ if (strtolower($r['status'] ?? '') === 'fail') $tmp[] = $r; }
-  $rows = $tmp;
+  $tmp=[]; foreach ($rows as $r){ if (strtolower($r['status'] ?? '')==='fail') $tmp[]=$r; } $rows=$tmp;
 } elseif ($q_status === 'ok'){
-  $tmp = [];
-  foreach ($rows as $r){ if (strtolower($r['status'] ?? '') === 'ok') $tmp[] = $r; }
-  $rows = $tmp;
+  $tmp=[]; foreach ($rows as $r){ if (strtolower($r['status'] ?? '')==='ok') $tmp[]=$r; } $rows=$tmp;
 }
-
 if ($q_job !== ''){
-  $tmp = [];
-  foreach ($rows as $r){
-    if (isset($r['job']) && strcasecmp($r['job'], $q_job) === 0) $tmp[] = $r;
-  }
-  $rows = $tmp;
+  $tmp=[]; foreach ($rows as $r){ if (isset($r['job']) && strcasecmp($r['job'],$q_job)===0) $tmp[]=$r; } $rows=$tmp;
 }
 
 // summaries
@@ -156,14 +158,11 @@ foreach ($rows as $r){
 }
 $avg_dur = $dur_count ? (int)round($sum_dur / $dur_count) : 0;
 
-// next cron (assume 30m cadence)
+// next cron due (assume every 30 mins)
 $next_due_str = '—';
 if ($last_run_ts){
   $last_dt = parse_ts($last_run_ts, $TZ_NAME);
-  if ($last_dt){
-    $next = clone $last_dt; $next->modify('+30 minutes');
-    $next_due_str = $next->format('Y-m-d H:i:s');
-  }
+  if ($last_dt){ $next = clone $last_dt; $next->modify('+30 minutes'); $next_due_str = $next->format('Y-m-d H:i:s'); }
 }
 
 // pagination
@@ -181,8 +180,7 @@ $paginated = array_slice($rows, $start, $size);
   :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#94a3b8}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-  a{color:#fbbf24;text-decoration:none}
-  a:hover{text-decoration:underline}
+  a{color:#fbbf24;text-decoration:none} a:hover{text-decoration:underline}
   .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
   h1{margin:0 0 16px}
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
@@ -202,8 +200,7 @@ $paginated = array_slice($rows, $start, $size);
   .muted{color:var(--muted)}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
   .right{float:right}
-  .badge-ok{color:#86efac}
-  .badge-fail{color:#fecaca}
+  .badge-ok{color:#86efac}.badge-fail{color:#fecaca}
   .callout{margin:10px 0;padding:10px 12px;border-radius:12px;border:1px solid #ffffff1a;background:#ffffff0d}
 </style>
 </head>
@@ -247,7 +244,7 @@ $paginated = array_slice($rows, $start, $size);
   <form method="post" class="callout">
     <input type="hidden" name="force" value="1">
     <button type="submit" class="btn">Run archive job now</button>
-    <span class="muted">Calls <?= h($ARCHIVE_URL) ?> and logs like cron.</span>
+    <span class="muted">Tries <code class="mono">http://127.0.0.1/archive_feed.php</code> (Host <?= h($host) ?>), then <?= h($publicArchive) ?>.</span>
   </form>
 
   <?php if ($run_now_result !== null): ?>
@@ -347,7 +344,11 @@ $paginated = array_slice($rows, $start, $size);
   </div>
   <?php endif; ?>
 
-  <footer>Reads <code class="mono">data/cron.jsonl</code>. Writer URL: <code class="mono"><?= h($ARCHIVE_URL) ?></code>. Timezone: <?= h($TZ_NAME) ?>.</footer>
+  <footer>
+    Reads <code class="mono">data/cron.jsonl</code>. Writer URLs: 
+    <code class="mono"><?= h($loopbackArchive) ?></code> → 
+    <code class="mono"><?= h($publicArchive) ?></code>. Timezone: <?= h($TZ_NAME) ?>.
+  </footer>
 </div>
 </body>
 </html>

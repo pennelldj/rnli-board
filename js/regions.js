@@ -6,10 +6,11 @@ const REGIONS = {
     'porthcawl','the mumbles','tenby'
   ],
   scotland: [
-    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
-    'moray','highland','orkney','shetland','outer hebrides','western isles',
-    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll'
-  ],
+  'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
+  'moray','highland','orkney','shetland','outer hebrides','western isles',
+  'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll',
+  'grampian'   
+],
   england: [
     'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
     'yorkshire','lancashire','merseyside','northumberland','cumbria',

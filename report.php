@@ -5,6 +5,7 @@
  * - Reads data/cron.jsonl to show runs (newest first)
  * - Button to run archive writer now (via PHP CLI) and log result
  * - Manual run simulates a normal GET request to archive_feed.php (fixes 400/502)
+ * - Heartbeat rows are detected and shown with a heart, and excluded from write stats
  */
 
 declare(strict_types=1);
@@ -43,9 +44,20 @@ function safe_int($v, int $def = 0): int {
   return is_numeric($v) ? (int)$v : $def;
 }
 
+function is_heartbeat(array $r): bool {
+  if (!empty($r['heartbeat'])) return true;
+  if (!empty($r['details']['heartbeat'])) return true;
+  // Some crons may log UA only; treat “shout-cron/1.0” with no writer details as heartbeat
+  if (!empty($r['ua']) && stripos((string)$r['ua'], 'shout-cron/1.0') !== false && empty($r['details'])) return true;
+  // Also allow job label explicitly set
+  if (!empty($r['job']) && stripos((string)$r['job'], 'heartbeat') !== false) return true;
+  return false;
+}
+
 function summarize(array $rows): array {
   $rows = array_values($rows);
-  usort($rows, fn($a,$b) => strcmp($b['ts']??'', $a['ts']??'')); // newest first
+  // newest first
+  usort($rows, fn($a,$b) => strcmp($b['ts']??'', $a['ts']??''));
 
   $total = count($rows);
   $ok = 0; $fail = 0;
@@ -55,30 +67,40 @@ function summarize(array $rows): array {
   $sum_written = 0;
   $sum_dur = 0; $dur_n = 0;
 
+  $heartbeat_count = 0;
+
   foreach ($rows as $r) {
     $status = strtolower((string)($r['status']??''));
     if ($status === 'ok') $ok++; else $fail++;
+
+    if (is_heartbeat($r)) {
+      $heartbeat_count++;
+      // Heartbeats do not affect “written” or duration averages
+      continue;
+    }
+
     $det = $r['details'] ?? [];
     $w   = safe_int($det['written'] ?? $det['added'] ?? 0);
     $d   = safe_int($det['duration_ms'] ?? 0);
     if ($status === 'ok') {
       $sum_written += $w;
       if ($d > 0) { $sum_dur += $d; $dur_n++; }
-      if (!$last_written) $last_written = $w; // from newest ok row
+      if (!$last_written) $last_written = $w; // from newest ok row (non-heartbeat)
     }
   }
 
   $avg_dur = $dur_n ? (int)round($sum_dur / $dur_n) : 0;
 
   return [
-    'rows'          => $rows,
-    'total_runs'    => $total,
-    'ok'            => $ok,
-    'fail'          => $fail,
-    'last'          => $last,
-    'last_written'  => $last_written,
-    'sum_written'   => $sum_written,
-    'avg_duration'  => $avg_dur,
+    'rows'             => $rows,
+    'total_runs'       => $total,
+    'ok'               => $ok,
+    'fail'             => $fail,
+    'last'             => $last,
+    'last_written'     => $last_written,
+    'sum_written'      => $sum_written,
+    'avg_duration'     => $avg_dur,
+    'heartbeat_count'  => $heartbeat_count,
   ];
 }
 
@@ -210,6 +232,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
   .nowrap{white-space:nowrap}
   a{color:#f59e0b;text-decoration:none}
   a:hover{text-decoration:underline}
+  .heart{font-size:16px;color:#ef4444}
 </style>
 </head>
 <body>
@@ -218,7 +241,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
   <div class="toolbar">
     <button id="runBtn">Run archive job now</button>
-    <span class="muted">Runs <code>archive_feed.php?write=1&amp;limit=200</code> via PHP CLI and logs the run.</span>
+    <span class="muted">Runs <code>archive_feed.php?write=1&amp;limit=200</code> via PHP CLI and logs the run. Heartbeats show as <span class="heart">❤️</span>.</span>
   </div>
 
   <div class="row" style="margin-top:12px">
@@ -229,6 +252,9 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
           <span><?=h($sum['last']['ts'])?></span>
           <span> · </span>
           <span class="<?= strtolower($sum['last']['status'])==='ok' ? 'ok' : 'bad' ?>"><?=h($sum['last']['status'])?></span>
+          <?php if (is_heartbeat($sum['last'])): ?>
+            <span> · <span class="heart" title="Heartbeat">❤️</span></span>
+          <?php endif; ?>
         <?php else: ?>
           <span class="muted">No entries yet.</span>
         <?php endif; ?>
@@ -238,7 +264,8 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
       <div class="muted">TOTAL RUNS</div>
       <div style="margin-top:8px;font-size:28px"><?= (int)$sum['total_runs'] ?></div>
       <div class="muted" style="margin-top:4px">
-        <span class="ok"><?= (int)$sum['ok'] ?></span> / <span class="bad"><?= (int)$sum['fail'] ?></span>
+        <span class="ok"><?= (int)$sum['ok'] ?></span> / <span class="bad"><?= (int)$sum['fail'] ?></span> ·
+        Heartbeats: <?= (int)$sum['heartbeat_count'] ?>
       </div>
     </div>
     <div class="card">
@@ -246,6 +273,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
       <div style="margin-top:8px;font-size:28px"><?= (int)$sum['last_written'] ?></div>
       <div class="muted" style="margin-top:4px">Sum written · Avg duration</div>
       <div style="margin-top:6px"><span><?= (int)$sum['sum_written'] ?></span> · <span><?= (int)$sum['avg_duration'] ?>ms</span></div>
+      <div class="muted" style="margin-top:6px;font-size:12px">(* heartbeat runs don’t affect these numbers)</div>
     </div>
   </div>
 
@@ -274,13 +302,16 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
           $d = $r['details'] ?? [];
           $status = strtolower((string)($r['status'] ?? ''));
           $cls = ($status === 'ok') ? 'ok' : 'bad';
+          $hb = is_heartbeat($r);
       ?>
         <tr>
           <td class="nowrap"><?=h($r['ts'] ?? '')?></td>
-          <td><span class="pill"><?=h($r['job'] ?? '')?></span></td>
+          <td><span class="pill"><?=h($r['job'] ?? ($hb ? 'heartbeat' : ''))?></span></td>
           <td class="<?=$cls?>"><?=h($r['status'] ?? '')?></td>
           <td>
-            <?php
+            <?php if ($hb): ?>
+              <span class="heart" title="Heartbeat">❤️</span>
+            <?php else:
               $parts = [];
               if (isset($d['written']) || isset($d['added'])) $parts[] = 'written: ' . h((string)($d['written'] ?? $d['added']));
               if (isset($d['total']))       $parts[] = 'total: ' . h((string)$d['total']);
@@ -289,7 +320,7 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
               if (isset($d['duration_ms'])) $parts[] = 'duration_ms: ' . h((string)$d['duration_ms']);
               if (isset($d['error']))       $parts[] = 'error: ' . h((string)$d['error']);
               echo $parts ? implode(' · ', $parts) : '—';
-            ?>
+            endif; ?>
           </td>
           <td class="muted"><?=h(($r['ip'] ?? '') . ' ' . ($r['ua'] ?? ''))?></td>
         </tr>

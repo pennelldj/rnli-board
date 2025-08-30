@@ -190,25 +190,6 @@
   }
   function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// Determine region for a live item (returns 'WALES' | 'SCOTLAND' | 'ENGLAND' | 'IRELAND' or null)
-function entryRegion(l) {
-  // Build a lowercase haystack from the fields used on the live board
-  const hay = (
-    (l.stationName || '') + ' ' +
-    (l.description || '') + ' ' +
-    (l.location || '') + ' ' +
-    (l.website || '')
-  ).toLowerCase();
-
-  // REGIONS uses lowercase keys/keywords; convert to uppercase when returning
-  for (const [region, words] of Object.entries(REGIONS)) {
-    if (words.some(w => hay.includes(w))) {
-      return region.toUpperCase();
-    }
-  }
-  return null;
-}
-
   // Boat class links (based on operational number pattern)
   const CLASS_LINKS={
     'D-class Inshore':'https://rnli.org/what-we-do/lifeboats-and-stations/our-lifeboat-fleet/d-class-lifeboat',

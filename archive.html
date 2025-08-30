@@ -133,11 +133,11 @@
     if(under1h&&label==='Today')return'Launched (recently)'; if(label==='Today')return'Launched (today)';
     if(label==='Yesterday')return'Launched (yesterday)'; return'Launched (earlier)'; }
 
-  function inRegion(item, r){
-    if(r==='all') return true;
-    const s=((item.shortName||'')+' '+(item.title||'')).toLowerCase();
-    return REGIONS[r].some(w=>s.includes(w.toLowerCase()));
-  }
+ function inRegion(item, r){
+  if (r === 'all') return true;
+  const det = detectRegion(item); // from regions.js
+  return !!det && det === r;
+}
 
   function cardHTML(it){
     const cls = ageClass(it.launchDate);

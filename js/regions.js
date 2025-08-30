@@ -8,10 +8,10 @@ const REGIONS = {
     "barry","barry dock","porthcawl","glamorgan"
   ],
   scotland: [
-    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
+    'edinburgh','eyemouth','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
     'moray','highland','orkney','shetland','outer hebrides','western isles',
     'largs','strathclyde','portree','queensferry','skye','isle of skye','campbeltown','argyll',
-    'grampian'                // (you already added this for Macduff)
+    'grampian'      
   ],
   england: [
     'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
@@ -19,7 +19,7 @@ const REGIONS = {
     'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
     'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
     'jersey','guernsey','alderney','isle of man',
-    'suffolk','hants'         // ← add
+    'suffolk','hants'   
   ],
   ireland: [
     'dublin','galway','cork','belfast','londonderry','waterford',

@@ -1,94 +1,122 @@
 <?php
-// report.php — simple viewer for data/cron.jsonl
-// Compatible with archive_feed.php cron_log rows:
-// {
-//   ts, job, status, ip, ua, written, total, seen_live, considered, duration_ms, dry
-// }
+// report.php — viewer for data/cron.jsonl (PHP 7 compatible)
 
-$TZ     = new DateTimeZone('Europe/London');
-$DATA   = __DIR__ . '/data';
-$CRON   = $DATA . '/cron.jsonl';
+$TZ = 'Europe/London';
+$DATA = __DIR__ . '/data';
+$CRON = $DATA . '/cron.jsonl';
 
 header('Content-Type: text/html; charset=utf-8');
 
-// -------- helpers --------
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+
+function parse_ts($s, $tzName){
+  if(!$s) return false;
+  $tz = @new DateTimeZone($tzName ?: 'UTC');
+  $dt = DateTime::createFromFormat('Y-m-d H:i:s', $s, $tz);
+  if ($dt instanceof DateTime) return $dt;
+  $ts = @strtotime($s);
+  if ($ts !== false) {
+    $dt = new DateTime('@'.$ts);
+    $dt->setTimezone($tz);
+    return $dt;
+  }
+  return false;
+}
+
 function read_jsonl($path){
   $out = [];
   if (!file_exists($path)) return $out;
-  $fh = fopen($path, 'r');
+  $fh = @fopen($path, 'r');
   if (!$fh) return $out;
   while (($line = fgets($fh)) !== false){
     $line = trim($line);
-    if ($line === '') continue;
+    if ($line==='') continue;
     $j = json_decode($line, true);
-    if (is_array($j)) $j['_raw'] = $line; // keep raw
-    if ($j) $out[] = $j;
+    if (is_array($j)) $out[] = $j;
   }
   fclose($fh);
   return $out;
 }
-function parse_ts($s){
-  // Expect "YYYY-MM-DD HH:MM:SS"
-  $dt = DateTime::createFromFormat('Y-m-d H:i:s', $s, new DateTimeZone('Europe/London'));
-  if (!$dt) { // fallback
-    $ts = strtotime($s);
-    if ($ts !== false) $dt = (new DateTime('@'.$ts))->setTimezone(new DateTimeZone('Europe/London'));
-  }
-  return $dt;
-}
-function pill($text, $kind=''){
-  $bg = '#ffffff12'; $bd = '#ffffff1f'; $fg = '#fff';
-  if ($kind==='ok')    { $bg='#16a34a1f'; $bd='#16a34a55'; $fg='#86efac'; }
-  if ($kind==='fail')  { $bg='#ef44441f'; $bd='#ef444455'; $fg='#fecaca'; }
-  if ($kind==='muted') { $bg='#ffffff10'; $bd='#ffffff1a'; $fg='#cbd5e1'; }
+
+function pill($text, $kind){
+  $bg='#ffffff12'; $bd='#ffffff1f'; $fg='#fff';
+  if ($kind==='ok'){ $bg='#16a34a1f'; $bd='#16a34a55'; $fg='#86efac'; }
+  elseif ($kind==='fail'){ $bg='#ef44441f'; $bd='#ef444455'; $fg='#fecaca'; }
+  elseif ($kind==='muted'){ $bg='#ffffff10'; $bd='#ffffff1a'; $fg='#cbd5e1'; }
   return '<span style="display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid '.$bd.';background:'.$bg.';color:'.$fg.';font-weight:600">'.$text.'</span>';
 }
 
-// -------- query --------
-$q_status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : '';   // '', 'fail', 'ok'
-$q_job    = isset($_GET['job'])    ? trim($_GET['job']) : '';                  // e.g. 'archive_write'
-$page     = max(1, intval($_GET['page'] ?? 1));
-$size     = max(10, min(200, intval($_GET['size'] ?? 50)));
+// -------- query
+$q_status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : '';
+$q_job    = isset($_GET['job']) ? trim($_GET['job']) : '';
+$page     = max(1, (int)($_GET['page'] ?? 1));
+$size     = (int)($_GET['size'] ?? 50);
+if ($size < 10) $size = 10;
+if ($size > 200) $size = 200;
 
 $all = read_jsonl($CRON);
 
-// Newest → oldest (by ts string; we also handle missing/invalid ts)
-usort($all, function($a,$b){
-  $ta = parse_ts($a['ts'] ?? '')?->getTimestamp() ?? 0;
-  $tb = parse_ts($b['ts'] ?? '')?->getTimestamp() ?? 0;
-  return $tb <=> $ta;
+// sort newest → oldest
+usort($all, function($a,$b) use ($TZ){
+  $ta = 0; $tb = 0;
+  if (isset($a['ts'])) { $d = parse_ts($a['ts'], $TZ); if ($d) $ta = $d->getTimestamp(); }
+  if (isset($b['ts'])) { $d = parse_ts($b['ts'], $TZ); if ($d) $tb = $d->getTimestamp(); }
+  return $tb - $ta;
 });
 
-// Filters
+// apply filters
 $rows = $all;
-if ($q_status === 'fail') $rows = array_values(array_filter($rows, fn($r)=>(strtolower($r['status']??'')==='fail')));
-if ($q_status === 'ok')   $rows = array_values(array_filter($rows, fn($r)=>(strtolower($r['status']??'')==='ok')));
-if ($q_job !== '')        $rows = array_values(array_filter($rows, fn($r)=> (isset($r['job']) && strcasecmp($r['job'],$q_job)===0)));
 
-// Summary
-$total_runs   = count($rows);
-$total_all    = count($all);
-$succ = 0; $fail = 0; $sum_written = 0; $sum_dur = 0; $dur_count=0;
-$last_run_ts = $all ? ($all[0]['ts'] ?? '') : '';
+if ($q_status === 'fail'){
+  $tmp = [];
+  foreach ($rows as $r){ if (strtolower($r['status'] ?? '') === 'fail') $tmp[] = $r; }
+  $rows = $tmp;
+} elseif ($q_status === 'ok'){
+  $tmp = [];
+  foreach ($rows as $r){ if (strtolower($r['status'] ?? '') === 'ok') $tmp[] = $r; }
+  $rows = $tmp;
+}
+
+if ($q_job !== ''){
+  $tmp = [];
+  foreach ($rows as $r){
+    if (isset($r['job']) && strcasecmp($r['job'], $q_job) === 0) $tmp[] = $r;
+  }
+  $rows = $tmp;
+}
+
+// summaries
+$total_runs = count($rows);
+$total_all  = count($all);
+$succ=0; $fail=0; $sum_written=0; $sum_dur=0; $dur_count=0;
+$last_run_ts = $total_all ? ($all[0]['ts'] ?? '') : '';
 $last_nonzero_written = null;
 
 foreach ($rows as $r){
   $st = strtolower($r['status'] ?? '');
-  if ($st==='ok') $succ++; elseif ($st==='fail') $fail++;
-  if (isset($r['written'])) {
-    $w = intval($r['written']);
-    $sum_written += $w;
-    if ($last_nonzero_written===null && $w>0) $last_nonzero_written = $w;
-  }
-  if (isset($r['duration_ms'])) { $sum_dur += intval($r['duration_ms']); $dur_count++; }
-}
-$avg_dur = $dur_count ? intval(round($sum_dur / $dur_count)) : 0;
+  if ($st==='ok') $succ++;
+  elseif ($st==='fail') $fail++;
 
-// Pagination
-$start = ($page-1)*$size;
+  if (isset($r['written'])){
+    $w = (int)$r['written'];
+    $sum_written += $w;
+    if ($last_nonzero_written === null && $w > 0) $last_nonzero_written = $w;
+  }
+  if (isset($r['duration_ms'])){ $sum_dur += (int)$r['duration_ms']; $dur_count++; }
+}
+$avg_dur = $dur_count ? (int)round($sum_dur / $dur_count) : 0;
+
+// pagination
+$start = ($page - 1) * $size;
 $paginated = array_slice($rows, $start, $size);
 
+// helper for links
+function link_with($key, $val){
+  $q = $_GET;
+  unset($q['page']); // reset page on filter change
+  $q[$key] = $val;
+  return '?'.http_build_query($q);
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -98,7 +126,7 @@ $paginated = array_slice($rows, $start, $size);
 <title>Cron Report</title>
 <link rel="icon" href="data:,">
 <style>
-  :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#94a3b8;--brand:#f28b00}
+  :root{--bg:#0b0f14;--card:#ffffff10;--border:#ffffff1a;--muted:#94a3b8}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
   a{color:#fbbf24;text-decoration:none}
@@ -137,8 +165,7 @@ $paginated = array_slice($rows, $start, $size);
       <div class="big">
         <?= $last_run_ts ? h($last_run_ts) : '—' ?>
         <?php
-          // status of very latest (from $all)
-          $latest_status = $all ? strtolower($all[0]['status'] ?? '') : '';
+          $latest_status = $total_all ? strtolower($all[0]['status'] ?? '') : '';
           echo ' &nbsp; ' . ($latest_status==='ok' ? pill('ok','ok') : ($latest_status==='fail' ? pill('fail','fail') : pill('—','muted')));
         ?>
       </div>
@@ -149,7 +176,7 @@ $paginated = array_slice($rows, $start, $size);
     </div>
     <div class="tile">
       <h3>Success / Fail</h3>
-      <div class="big"><?= pill($succ.' / '.$fail, $fail>0?'fail':'ok') ?></div>
+      <div class="big"><?= ($fail>0 ? pill($succ.' / '.$fail,'fail') : pill($succ.' / '.$fail,'ok')) ?></div>
     </div>
     <div class="tile">
       <h3>Last “written” count</h3>
@@ -163,11 +190,8 @@ $paginated = array_slice($rows, $start, $size);
 
   <form class="filters" method="get">
     <div class="seg">
-      <?php
-        $base = function($k,$v){ $q=$_GET; unset($q['page']); $q[$k]=$v; return '?'.http_build_query($q); };
-      ?>
-      <a href="<?= h($base('status','')) ?>" class="<?= $q_status===''?'active':'' ?>">All</a>
-      <a href="<?= h($base('status','fail')) ?>" class="<?= $q_status==='fail'?'active':'' ?>">Only fails</a>
+      <a href="<?= h(link_with('status','')) ?>" class="<?= $q_status===''?'active':'' ?>">All</a>
+      <a href="<?= h(link_with('status','fail')) ?>" class="<?= $q_status==='fail'?'active':'' ?>">Only fails</a>
     </div>
 
     <label>Job
@@ -204,43 +228,43 @@ $paginated = array_slice($rows, $start, $size);
       </tr>
     </thead>
     <tbody>
-      <?php if (!count($paginated)): ?>
-        <tr><td colspan="5" class="muted">No entries yet.</td></tr>
-      <?php else: foreach ($paginated as $r): ?>
-        <tr>
-          <td class="mono"><?= h($r['ts'] ?? '—') ?></td>
-          <td><?= pill(h($r['job'] ?? '—'), 'muted') ?></td>
-          <td>
-            <?php
-              $st = strtolower($r['status'] ?? '');
-              echo $st==='ok' ? '<span class="badge-ok">ok</span>' :
-                   ($st==='fail' ? '<span class="badge-fail">fail</span>' : h($st));
-            ?>
-          </td>
-          <td class="mono">
-            <?php
-              $parts = [];
-              if (isset($r['written']))     $parts[] = 'written: '.intval($r['written']);
-              if (isset($r['total']))       $parts[] = 'total: '.intval($r['total']);
-              if (isset($r['seen_live']))   $parts[] = 'seen_live: '.intval($r['seen_live']);
-              if (isset($r['considered']))  $parts[] = 'considered: '.intval($r['considered']);
-              if (isset($r['duration_ms'])) $parts[] = 'duration_ms: '.intval($r['duration_ms']);
-              if (isset($r['dry']))         $parts[] = 'dry: '.intval($r['dry']);
-              echo $parts ? h(implode(' · ', $parts)) : '<span class="muted">—</span>';
-            ?>
-          </td>
-          <td class="mono">
-            <?= h($r['ip'] ?? '') ?><br>
-            <span class="muted"><?= h($r['ua'] ?? '') ?></span>
-          </td>
-        </tr>
-      <?php endforeach; endif; ?>
+    <?php if (!count($paginated)): ?>
+      <tr><td colspan="5" class="muted">No entries yet.</td></tr>
+    <?php else: foreach ($paginated as $r): ?>
+      <tr>
+        <td class="mono"><?= h($r['ts'] ?? '—') ?></td>
+        <td><?= pill(h($r['job'] ?? '—'), 'muted') ?></td>
+        <td>
+          <?php
+            $st = strtolower($r['status'] ?? '');
+            echo $st==='ok' ? '<span class="badge-ok">ok</span>' :
+                 ($st==='fail' ? '<span class="badge-fail">fail</span>' : h($st));
+          ?>
+        </td>
+        <td class="mono">
+          <?php
+            $parts = [];
+            if (isset($r['written']))     $parts[] = 'written: '.(int)$r['written'];
+            if (isset($r['total']))       $parts[] = 'total: '.(int)$r['total'];
+            if (isset($r['seen_live']))   $parts[] = 'seen_live: '.(int)$r['seen_live'];
+            if (isset($r['considered']))  $parts[] = 'considered: '.(int)$r['considered'];
+            if (isset($r['duration_ms'])) $parts[] = 'duration_ms: '.(int)$r['duration_ms'];
+            if (isset($r['dry']))         $parts[] = 'dry: '.(int)$r['dry'];
+            echo $parts ? h(implode(' · ', $parts)) : '<span class="muted">—</span>';
+          ?>
+        </td>
+        <td class="mono">
+          <?= h($r['ip'] ?? '') ?><br>
+          <span class="muted"><?= h($r['ua'] ?? '') ?></span>
+        </td>
+      </tr>
+    <?php endforeach; endif; ?>
     </tbody>
   </table>
 
   <?php
     $total_pages = max(1, (int)ceil(count($rows)/$size));
-    if ($total_pages>1):
+    if ($total_pages > 1):
       $q = $_GET;
       $q['page'] = max(1, $page-1); $prev = '?'.http_build_query($q);
       $q['page'] = min($total_pages, $page+1); $next = '?'.http_build_query($q);
@@ -254,7 +278,7 @@ $paginated = array_slice($rows, $start, $size);
   </div>
   <?php endif; ?>
 
-  <footer>Reads <code class="mono">data/cron.jsonl</code>. Timezone: Europe/London.</footer>
+  <footer>Reads <code class="mono">data/cron.jsonl</code>. Timezone: <?= h($TZ) ?>.</footer>
 </div>
 </body>
 </html>

@@ -190,19 +190,29 @@
   function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
   // Region detection from station + title
-  const REGIONS = {
-    WALES: ['Anglesey','Gwynedd','Conwy','Denbighshire','Flintshire','Wrexham','Powys','Ceredigion','Pembrokeshire','Carmarthenshire','Swansea','Neath Port Talbot','Bridgend','Vale of Glamorgan','Cardiff','Rhondda','Cynon','Taf','Merthyr Tydfil','Caerphilly','Blaenau Gwent','Torfaen','Monmouthshire','Newport','Wales'],
-    SCOTLAND: ['Scotland','Highland','Orkney','Shetland','Aberdeenshire','Moray','Argyll','Bute','Fife','Dundee','Angus','Perth','Kinross','Ayrshire','Lanarkshire','Lothian','Borders','Inverclyde','Renfrewshire'],
-    ENGLAND: ['England','Cornwall','Devon','Dorset','Somerset','Hampshire','Sussex','Kent','Essex','Norfolk','Suffolk','Lincolnshire','Yorkshire','Northumberland','Tyne and Wear','Cleveland','Cumbria','Lancashire','Merseyside','Cheshire','Derbyshire','Nottinghamshire','Leicestershire','Warwickshire','Northamptonshire','Cambridgeshire','Bedfordshire','Buckinghamshire','Oxfordshire','Gloucestershire','Bristol','Wiltshire','Berkshire','Surrey','Hertfordshire','London'],
-    IRELAND: ['Ireland','Republic of Ireland','Northern Ireland','Co.','County','Wexford','Waterford','Cork','Kerry','Limerick','Clare','Galway','Mayo','Sligo','Donegal','Dublin','Louth','Meath','Wicklow','Antrim','Down','Londonderry','Derry','Armagh','Tyrone','Fermanagh']
-  };
-  function entryRegion(e){
-    const s = ((e.stationName||'') + ' ' + (e.description||'') + ' ' + (e.location||'') + ' ' + (e.title||'')).toLowerCase();
-    for (const k of ['WALES','SCOTLAND','ENGLAND','IRELAND']){
-      if (REGIONS[k].some(w => s.includes(w.toLowerCase()))) return k;
-    }
-    return 'ENGLAND'; // default bias if unknown
-  }
+const REGIONS = {
+  wales: [
+    'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
+    'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
+    'porthcawl','the mumbles','tenby'
+  ],
+  scotland: [
+    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
+    'moray','highland','orkney','shetland','outer hebrides','western isles',
+    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll'
+  ],
+  england: [
+    'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
+    'yorkshire','lancashire','merseyside','northumberland','cumbria',
+    'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
+    'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
+    'jersey','guernsey','alderney','isle of man'
+  ],
+  ireland: [
+    'dublin','galway','cork','belfast','londonderry','waterford',
+    'dún laoghaire','dun laoghaire'
+  ]
+}
 
   // Boat class links (based on operational number pattern)
   const CLASS_LINKS={

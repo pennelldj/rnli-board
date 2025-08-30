@@ -133,11 +133,28 @@
     if(label==='Yesterday')return'Launched (yesterday)'; return'Launched (earlier)'; }
 
   const REGIONS = {
-    wales: ['Anglesey','Gwynedd','Conwy','Denbighshire','Flintshire','Wrexham','Powys','Ceredigion','Pembrokeshire','Carmarthenshire','Swansea','Neath Port Talbot','Bridgend','Vale of Glamorgan','Cardiff','Rhondda','Cynon','Taf','Merthyr Tydfil','Caerphilly','Blaenau Gwent','Torfaen','Monmouthshire','Newport','Wales'],
-    scotland: ['Scotland','Highland','Orkney','Shetland','Aberdeenshire','Moray','Argyll','Bute','Fife','Dundee','Angus','Perth','Kinross','Ayrshire','Lanarkshire','Lothian','Borders','Inverclyde','Renfrewshire'],
-    england: ['England','Cornwall','Devon','Dorset','Somerset','Hampshire','Sussex','Kent','Essex','Norfolk','Suffolk','Lincolnshire','Yorkshire','Northumberland','Tyne and Wear','Cleveland','Cumbria','Lancashire','Merseyside','Cheshire','Derbyshire','Nottinghamshire','Leicestershire','Warwickshire','Northamptonshire','Cambridgeshire','Bedfordshire','Buckinghamshire','Oxfordshire','Gloucestershire','Bristol','Wiltshire','Berkshire','Surrey','Hertfordshire','London'],
-    ireland: ['Ireland','Republic of Ireland','Northern Ireland','Co.','County','Wexford','Waterford','Cork','Kerry','Limerick','Clare','Galway','Mayo','Sligo','Donegal','Dublin','Louth','Meath','Wicklow','Antrim','Down','Londonderry','Derry','Armagh','Tyrone','Fermanagh']
-  };
+  wales: [
+    'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
+    'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
+    'porthcawl','the mumbles','tenby'
+  ],
+  scotland: [
+    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
+    'moray','highland','orkney','shetland','outer hebrides','western isles',
+    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll'
+  ],
+  england: [
+    'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
+    'yorkshire','lancashire','merseyside','northumberland','cumbria',
+    'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
+    'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
+    'jersey','guernsey','alderney','isle of man'
+  ],
+  ireland: [
+    'dublin','galway','cork','belfast','londonderry','waterford',
+    'dún laoghaire','dun laoghaire'
+  ]
+};
   function inRegion(item, r){
     if(r==='all') return true;
     const s=((item.shortName||'')+' '+(item.title||'')).toLowerCase();

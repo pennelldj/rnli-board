@@ -1,5 +1,5 @@
 <?php
-// stats_feed.php — fast aggregates for RNLI archive (reads launches.jsonl)
+// stats_feed.php here — fast aggregates for RNLI archive (reads launches.jsonl)
 header('Content-Type: application/json; charset=utf-8');
 
 $dataDir = __DIR__ . '/data';

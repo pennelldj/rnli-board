@@ -303,15 +303,13 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
     $status = strtolower((string)($r['status'] ?? ''));
     $cls = ($status === 'ok') ? 'ok' : 'bad';
 
-    // icon logic
-    $icon = '';
-    if (!empty($r['heartbeat'])) {
-      $icon = '♥';
-    } elseif (!empty($r['dry'])) {
-      $icon = '◇';
-    } else {
-      $icon = '◆';
-    }
+    // Icon logic:
+    // - heartbeat is a top-level flag: heartbeat:1  -> ♥
+    // - dry can be top-level (archive_feed.php) or inside details -> ◇
+    // - otherwise assume a normal write attempt -> ◆
+    $isHeartbeat = !empty($r['heartbeat']);
+    $isDry       = !empty($r['dry']) || !empty($d['dry']);
+    $icon        = $isHeartbeat ? '♥' : ($isDry ? '◇' : '◆');
 ?>
   <tr>
     <td class="nowrap"><?=h($r['ts'] ?? '')?></td>
@@ -325,6 +323,8 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
         if (isset($d['seen_live']))   $parts[] = 'seen_live: ' . h((string)$d['seen_live']);
         if (isset($d['considered']))  $parts[] = 'considered: ' . h((string)$d['considered']);
         if (isset($d['duration_ms'])) $parts[] = 'duration_ms: ' . h((string)$d['duration_ms']);
+        if (!empty($r['dry']) || !empty($d['dry'])) $parts[] = 'dry: 1';
+        if (!empty($r['heartbeat'])) $parts[] = 'heartbeat: 1';
         if (isset($d['error']))       $parts[] = 'error: ' . h((string)$d['error']);
         echo $parts ? implode(' · ', $parts) : '—';
       ?>

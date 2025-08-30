@@ -75,7 +75,7 @@
     <button id="next">Next</button>
   </div>
 </div>
- <!-- load shared regions + adapters first -->
+ <script src="js/boats.js"></script>
   <script src="js/regions.js"></script>
 <script>
 (() => {
@@ -141,13 +141,12 @@
 
   function cardHTML(it){
     const cls = ageClass(it.launchDate);
-    const idNo = it.lifeboat_IdNo || '';
-    const className = idNo ? classFromId(idNo) : '';
-    let classHtml = className ? escapeHtml(className) : '';
-    if (className && CLASS_LINKS[className]) classHtml =
-      '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
-    const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';
-    const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
+    const { idNo, className, classLink } = boatInfo(it);
+let classHtml = className ? escapeHtml(className) : '';
+if (className && classLink) {
+  classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
+}
+const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';const link = it.website ? `<a href="https://${it.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
     const location = ((it.title||'').includes(',') ? it.title.split(',').slice(1).join(',') : '').trim();
     const mapsQ = encodeURIComponent('RNLI '+(it.shortName||''));
     const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
@@ -223,6 +222,7 @@
     if (!res.ok) { els.days.innerHTML = '<div class="empty">Failed to load archive.</div>'; return; }
     const j = await res.json();
     const baseItems = j.items || [];
+    if (window.logUnknownBoatClasses) logUnknownBoatClasses(baseItems);
     logUnmatchedRegions(baseItems);
 
     updateRegionCounts(baseItems);

@@ -129,7 +129,7 @@
      <br>© Stiwdio Ltd 2025<br>
     <span id="lastUpdate"></span></footer>
 </div>
- <!-- load shared regions + adapters first -->
+ <script src="js/boats.js"></script>
   <script src="js/regions.js"></script>
 <script>
 (() => {
@@ -222,14 +222,12 @@
   // Build a card
   function cardHTML(l){
     const cls = ageClass(l.timeStamp);
-    const idNo = l.lifeboat_IdNo || '';
-    const className = idNo ? classFromId(idNo) : '';
-    let classHtml = className ? escapeHtml(className) : '';
-    if (className && CLASS_LINKS[className]) {
-      classHtml = '<a href="'+CLASS_LINKS[className]+'" target="_blank" rel="noopener" style="color:#9ca3af;text-decoration:underline;text-underline-offset:2px">'+classHtml+'</a>';
-    }
-    const boatLine = idNo ? '<div style="font-size:13px;color:#9ca3af;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px">'+(classHtml?classHtml:'')+'<span style="flex:0 0 100%">('+escapeHtml(idNo)+')</span></div>' : '';
-
+    const { idNo, className, classLink } = boatInfo(l);
+let classHtml = className ? escapeHtml(className) : '';
+if (className && classLink) {
+  classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
+}
+const boatLine = idNo ? '<div class="boat">'+(classHtml?classHtml:'')+'<span class="idNo">('+escapeHtml(idNo)+')</span></div>' : '';
     const link = l.website ? `<a href="https://${l.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
     const mapsQ = encodeURIComponent('RNLI '+(l.stationName||''));
     const mapLink = `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ}" target="_blank" rel="noopener">Map</a>`;
@@ -397,6 +395,7 @@
     try{
       const raw = await fetchCleanJSON();
       const mapped = normalize(raw);
+if (window.logUnknownBoatClasses) logUnknownBoatClasses(mapped);
 if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
 
       ensureFirstSeenFor(mapped);

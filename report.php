@@ -88,18 +88,36 @@ function curl_get($url, $timeout = 12, $hostHeader = null){
 // ---------- manual trigger ("Run now") ----------
 $run_now_result = null;
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['force']) && $_POST['force']=='1'){
-  // Prefer loopback (no CDN/reverse-proxy), keep Host header for vhost
-  list($body, $err) = curl_get($loopbackArchive, 12, $host);
+  // 1) Try loopback (keeps Host header for vhost)
+  list($body, $err) = curl_get('http://127.0.0.1/archive_feed.php?write=1&limit=200', 12, $host);
+
+  // If loopback failed (404 or anything), fall back to a **local CLI include** (no HTTP at all)
   if ($err){
-    // fallback to public URL
-    list($body2, $err2) = curl_get($publicArchive, 12, null);
-    if ($err2){
-      $run_now_result = ['ok'=>false, 'error'=>$err.'; fallback: '.$err2];
+    // Find PHP CLI
+    $php = trim((string)@shell_exec('command -v php')) ?: '/usr/bin/php';
+    $writer = __DIR__ . '/archive_feed.php';
+    if (is_file($writer) && is_readable($writer)) {
+      // Build a small one-liner that sets $_GET and includes the writer
+      $snippet = '$_GET["write"]=1; $_GET["limit"]=200; include "'.addslashes($writer).'";';
+      $cmd = escapeshellcmd($php) . ' -d detect_unicode=0 -r ' . escapeshellarg($snippet);
+      $out = @shell_exec($cmd);
+
+      if ($out === null || $out === false) {
+        $run_now_result = ['ok'=>false, 'error'=>'CLI exec failed (no output). Tried: '.$php];
+      } else {
+        $decoded = json_decode($out, true);
+        if (is_array($decoded)) {
+          $run_now_result = $decoded;
+        } else {
+          $run_now_result = ['ok'=>false, 'error'=>'CLI returned non-JSON', 'raw'=>$out];
+        }
+      }
     } else {
-      $decoded = json_decode($body2, true);
-      $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body2];
+      // Couldn’t read the writer file locally
+      $run_now_result = ['ok'=>false, 'error'=>'HTTP '.$err.'; also cannot read '.basename($writer)];
     }
   } else {
+    // Loopback worked
     $decoded = json_decode($body, true);
     $run_now_result = is_array($decoded) ? $decoded : ['raw'=>$body];
   }

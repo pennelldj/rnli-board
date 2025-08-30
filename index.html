@@ -129,7 +129,8 @@
      <br>© Stiwdio Ltd 2025<br>
     <span id="lastUpdate"></span></footer>
 </div>
-
+ <!-- load shared regions + adapters first -->
+  <script src="js/regions.js"></script>
 <script>
 (() => {
   // Endpoints
@@ -188,31 +189,6 @@
     return 'older';
   }
   function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
-  // Region detection from station + title
-const REGIONS = {
-  wales: [
-    'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
-    'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
-    'porthcawl','the mumbles','tenby'
-  ],
-  scotland: [
-    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
-    'moray','highland','orkney','shetland','outer hebrides','western isles',
-    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll'
-  ],
-  england: [
-    'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
-    'yorkshire','lancashire','merseyside','northumberland','cumbria',
-    'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
-    'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
-    'jersey','guernsey','alderney','isle of man'
-  ],
-  ireland: [
-    'dublin','galway','cork','belfast','londonderry','waterford',
-    'dún laoghaire','dun laoghaire'
-  ]
-};
 
 // Determine region for a live item (returns 'WALES' | 'SCOTLAND' | 'ENGLAND' | 'IRELAND' or null)
 function entryRegion(l) {

@@ -75,7 +75,8 @@
     <button id="next">Next</button>
   </div>
 </div>
-
+ <!-- load shared regions + adapters first -->
+  <script src="js/regions.js"></script>
 <script>
 (() => {
   const els = {
@@ -132,29 +133,6 @@
     if(under1h&&label==='Today')return'Launched (recently)'; if(label==='Today')return'Launched (today)';
     if(label==='Yesterday')return'Launched (yesterday)'; return'Launched (earlier)'; }
 
-  const REGIONS = {
-  wales: [
-    'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
-    'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
-    'porthcawl','the mumbles','tenby'
-  ],
-  scotland: [
-    'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
-    'moray','highland','orkney','shetland','outer hebrides','western isles',
-    'largs','strathclyde','portree','skye','isle of skye','campbeltown','argyll'
-  ],
-  england: [
-    'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
-    'yorkshire','lancashire','merseyside','northumberland','cumbria',
-    'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
-    'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
-    'jersey','guernsey','alderney','isle of man'
-  ],
-  ireland: [
-    'dublin','galway','cork','belfast','londonderry','waterford',
-    'dún laoghaire','dun laoghaire'
-  ]
-};
   function inRegion(item, r){
     if(r==='all') return true;
     const s=((item.shortName||'')+' '+(item.title||'')).toLowerCase();

@@ -20,7 +20,8 @@
   .sub{ color:var(--muted2); margin-top:6px }
 
   .toolbar{ margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center }
-  input[type="text"]{ background:#ffffff0d; border:1px solid var(--border); color:#fff; border-radius:12px; padding:10px 12px; outline:none; min-width:240px }
+  /* slightly narrower so the icons fit nicely */
+  input[type="text"]{ background:#ffffff0d; border:1px solid var(--border); color:#fff; border-radius:12px; padding:10px 12px; outline:none; min-width:200px }
   input::placeholder{ color:#ffffff55 }
   .btn{ background:#ffffff0d; border:1px solid var(--border); color:#fff; border-radius:12px; padding:10px 12px; cursor:pointer }
   .seg{ display:inline-flex; border:1px solid var(--border); border-radius:12px; overflow:hidden }
@@ -31,6 +32,15 @@
   /* counts + mismatch badge */
   .seg .count{ opacity:.65; margin-left:6px; font-size:12px }
   .warn-badge{ color:#ef4444; font-weight:700; margin-left:6px }
+
+  /* compact icon buttons (sound + archive) */
+  .iconbtn{
+    width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--border); background:#ffffff0d; color:#fff; border-radius:10px; cursor:pointer;
+  }
+  .iconbtn:hover{ background:#ffffff12 }
+  .iconbtn[aria-pressed="true"]{ outline:1px solid #2563eb55; background:#2563eb22 }
+  .iconbtn .ico{ font-size:18px; line-height:1 }
 
   /* Weather pill */
   .wx{
@@ -126,8 +136,14 @@
         <button data-mins="45" class="active">45m</button>
         <button data-mins="60">60m</button>
       </div>
-      <button id="toggleSound" class="btn">Sound: OFF</button>
-      <a href="archive.html" class="btn" style="margin-left:auto">View archive →</a>
+
+      <!-- compact icons -->
+      <button id="toggleSound" class="iconbtn" aria-pressed="false" title="Sound OFF" aria-label="Sound OFF">
+        <span class="ico" id="soundIcon">🔇</span>
+      </button>
+      <a href="archive.html" class="iconbtn" id="openArchive" style="margin-left:auto" title="Open archive" aria-label="Open archive">
+        <span class="ico">🗂️</span>
+      </a>
     </div>
   </header>
 
@@ -165,6 +181,7 @@
     regionSeg: document.getElementById('regionSeg'),
     activeSeg: document.getElementById('activeSeg'),
     toggleSound: document.getElementById('toggleSound'),
+    soundIcon: document.getElementById('soundIcon'),
     lastUpdate: document.getElementById('lastUpdate'),
   };
 
@@ -247,7 +264,7 @@
       classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
     }
     const label  = classHtml || '<span class="unknown">Unclassified</span>';
-    const idSpan = idNo ? '<span class="idNo">('+escapeHtml(idNo)+')</span>' : '';
+       const idSpan = idNo ? '<span class="idNo">('+escapeHtml(idNo)+')</span>' : '';
     const boatLine = '<div class="boat">'+label+idSpan+'</div>';
 
     const link   = l.website ? `<a href="https://${l.website.replace(/^https?:\/\//,'')}" target="_blank" rel="noopener">More</a>` : '';
@@ -626,9 +643,16 @@
     render();
   });
 
+  function updateSoundButton(){
+    els.soundIcon.textContent = soundOn ? '🔊' : '🔇';
+    els.toggleSound.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
+    els.toggleSound.title = 'Sound ' + (soundOn ? 'ON' : 'OFF');
+    els.toggleSound.setAttribute('aria-label', 'Sound ' + (soundOn ? 'ON' : 'OFF'));
+  }
+
   els.toggleSound.addEventListener('click', async ()=>{
     soundOn = !soundOn;
-    els.toggleSound.textContent = 'Sound: ' + (soundOn ? 'ON' : 'OFF');
+    updateSoundButton();
     try {
       if (!audioCtx && soundOn) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -660,6 +684,7 @@
   // Start live loop
   loadStationCoords();   // load coords and hydrate immediately
   render();              // paint UI quickly
+  updateSoundButton();   // set initial icon state
   load();                // begin live fetch loop
 })();
 </script>

@@ -5,7 +5,7 @@ const REGIONS = {
     "flint","holyhead","moelfre","newquay","pembroke","penarth","pwllheli","rhyl",
     "saundersfoot","tenby","trearddur","llandudno","conwy","swansea","the mumbles",
     "st davids","st. davids","newport (wales)","vale of glamorgan",
-    "barry","barry dock","glamorgan"
+    "barry","barry dock","Porthcawl","glamorgan"
   ],
   scotland: [
     'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',

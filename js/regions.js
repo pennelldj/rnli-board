@@ -1,10 +1,11 @@
 // Unified region keywords (lowercase)
 const REGIONS = {
-  wales: [
-    'anglesey','holyhead','cardiff','swansea','bridgend','pembrokeshire',
-    'carmarthenshire','flintshire','wrexham','conwy','denbighshire',
-    'porthcawl','the mumbles','tenby',
-    'gwynedd'                 // ← add
+ wales: [
+    "abersoch","aberystwyth","angle","barmouth","beaumarish","cardigan","fishguard",
+    "flint","holyhead","moelfre","newquay","pembroke","penarth","pwllheli","rhyl",
+    "saundersfoot","tenby","trearddur","llandudno","conwy","swansea","the mumbles",
+    "st davids","st. davids","newport (wales)","vale of glamorgan",
+    "barry","barry dock","glamorgan"
   ],
   scotland: [
     'edinburgh','glasgow','aberdeen','inverness','dundee','fife','ayrshire',

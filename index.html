@@ -27,6 +27,17 @@
   .seg button{ background:#ffffff0d; border:0; color:#fff; padding:8px 12px; cursor:pointer }
   .seg button+button{ border-left:1px solid var(--border) }
   .seg .active{ background:#2563eb22; outline:1px solid #2563eb55 }
+  /* Weather pill */
+.wx{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#ffffff12;border:1px solid var(--border);
+  padding:2px 8px;border-radius:999px;font-size:11px;
+  margin-top:5px;opacity:0;transform:translateY(-2px);
+  transition:opacity .25s,transform .25s;
+}
+.wx.ready{opacity:1;transform:translateY(0)}
+.wx .ico{font-size:13px;line-height:1}
+.wx .t{font-variant-numeric:tabular-nums}
   .status-active {
   display: inline-block;
   background: #16a34a;   /* Tailwind’s green-600 */
@@ -227,15 +238,11 @@
 function cardHTML(l){
   const cls = ageClass(l.timeStamp);
 
-  // Unified boat detection from boats.js
   const { idNo, className, classLink } = boatInfo(l);
-
   let classHtml = className ? escapeHtml(className) : '';
   if (className && classLink) {
     classHtml = '<a href="'+classLink+'" target="_blank" rel="noopener" class="classLink">'+classHtml+'</a>';
   }
-
-  // Always render a boat line; show "Unclassified" if we don't know the class
   const label  = classHtml || '<span class="unknown">Unclassified</span>';
   const idSpan = idNo ? '<span class="idNo">('+escapeHtml(idNo)+')</span>' : '';
   const boatLine = '<div class="boat">'+label+idSpan+'</div>';
@@ -250,7 +257,10 @@ function cardHTML(l){
     dayLabel(l.timeStamp)==='Yesterday' ? 'Launched (yesterday)' : 'Launched (earlier)'
   );
 
-    return `
+  // 👇 weather anchor for this station
+  const wxSpan = `<span data-wx-name="${escapeHtml(l.stationName)}"></span>`;
+
+  return `
     <div class="card ${cls}">
       <div class="meta">
         <div class="left">
@@ -261,22 +271,80 @@ function cardHTML(l){
         <div class="rightTop">
           <div>${relTime(l.timeStamp)}</div>
           <div style="color:#666">${new Date(l.timeStamp).toLocaleTimeString()}</div>
+          ${wxSpan}
         </div>
       </div>
-    <div class="desc">${escapeHtml(l.description || '')}</div>
+      <div class="desc">${escapeHtml(l.description || '')}</div>
       <div class="row2">
         <div class="loc">${escapeHtml(l.location||'')}</div>
         <div class="right">
-       <div class="status">
-  <span class="dot" style="margin-right:5px"></span>
-  ${status === 'Active' ? `<span class="status-active">${status}</span>` : status}
-</div>
+          <div class="status">
+            <span class="dot" style="margin-right:5px"></span>
+            ${status === 'Active' ? `<span class="status-active">${status}</span>` : status}
+          </div>
           <div class="links">${mapLink}${link ? ' · '+link : ''}</div>
         </div>
       </div>
     </div>`;
-  }
+}
+// ─── Weather helpers ───────────────────────────────────────────────────────────
+const WEATHER_TTL = 5 * 60 * 1000;      // cache 5 minutes
+const weatherCache = new Map();
+let stationCoords = {};                  // { "Station Name": [lat, lon], ... }
 
+function iconForWmo(code){
+  const c = Number(code);
+  if (c===0) return '☀️';
+  if ([1,2].includes(c)) return '🌤️';
+  if (c===3) return '☁️';
+  if ([45,48].includes(c)) return '🌫️';
+  if ((c>=51 && c<=67) || [80,81,82].includes(c)) return '🌧️';
+  if (c>=71 && c<=86) return '❄️';
+  if ([95,96,99].includes(c)) return '⛈️';
+  return '🌡️';
+}
+
+async function fetchWeatherFor(name, lat, lon){
+  const cached = weatherCache.get(name);
+  if (cached && Date.now() - cached.ts < WEATHER_TTL) return cached;
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,wind_speed_10m&wind_speed_unit=kn&timezone=auto`;
+  const res = await fetch(url, { cache:'no-cache' });
+  if (!res.ok) throw new Error('weather http '+res.status);
+  const j = await res.json();
+  const cur = j.current || j.current_weather || {};
+  const out = {
+    icon: iconForWmo(cur.weather_code ?? cur.weathercode ?? 0),
+    temp: cur.temperature_2m ?? cur.temperature ?? null,
+    wind: cur.wind_speed_10m ?? cur.windspeed ?? null,
+    ts: Date.now()
+  };
+  weatherCache.set(name, out);
+  return out;
+}
+
+async function loadStationCoords(){
+  try{
+    const r = await fetch('stations_geo.json', { cache:'no-cache' });
+    if (r.ok) stationCoords = await r.json();
+  }catch(e){ stationCoords = {}; }
+}
+
+// Find all visible placeholders and hydrate them
+function mountWeatherForVisibleCards(){
+  if (!stationCoords || !Object.keys(stationCoords).length) return;
+  document.querySelectorAll('[data-wx-name]').forEach(el=>{
+    const station = el.getAttribute('data-wx-name');
+    const coords = stationCoords[station];
+    if (!coords) return;
+    el.innerHTML = '<span class="wx"><span class="ico">…</span><span class="t">…</span></span>';
+    fetchWeatherFor(station, coords[0], coords[1]).then(w=>{
+      el.innerHTML =
+        `<span class="wx ready"><span class="ico">${w.icon}</span>`+
+        `<span class="t">${w.temp??'—'}°C${w.wind!=null?' · '+w.wind+' kn':''}</span></span>`;
+    }).catch(()=>{ el.textContent=''; });
+  });
+}
   // ---- Ticker helpers ----
   function typeTicker(rest){
     const prefix = 'SHOUT: ';
@@ -370,7 +438,10 @@ function cardHTML(l){
     }).join('');
 
     els.days.innerHTML = html || `<div class="empty">No launches match your filter.</div>`;
-  }
+
+// hydrate weather pills for the freshly-rendered cards
+mountWeatherForVisibleCards();
+}
 
   // Sound ping (must be started after user gesture)
   let audioCtx = null;
@@ -508,9 +579,10 @@ if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
     }catch(e){}
   })();
 
-  // 2) Start live loop
-  render(); // in case no cache, at least paints empty UI
-  load();
+// 2) Start live loop
+loadStationCoords();   // ← load stations_geo.json once at boot
+render();              // in case no cache, at least paints empty UI
+load();
 })();
 </script>
 </body>

@@ -397,6 +397,7 @@
     try{
       const raw = await fetchCleanJSON();
       const mapped = normalize(raw);
+if (window.logUnmatchedRegions) logUnmatchedRegions(mapped);
 
       ensureFirstSeenFor(mapped);
       data = mapped;
@@ -488,6 +489,7 @@
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length){
           data = parsed;
+          if (window.logUnmatchedRegions) logUnmatchedRegions(parsed);
           render();
           els.lastUpdate.textContent = 'Last updated (cached): ' + new Date().toLocaleTimeString();
         }

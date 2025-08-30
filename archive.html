@@ -223,6 +223,7 @@
     if (!res.ok) { els.days.innerHTML = '<div class="empty">Failed to load archive.</div>'; return; }
     const j = await res.json();
     const baseItems = j.items || [];
+    logUnmatchedRegions(baseItems);
 
     updateRegionCounts(baseItems);
     const items = baseItems.filter(x=>inRegion(x, region));

@@ -58,3 +58,21 @@ window.inRegion = (s, region) => {
 // also expose REGIONS + detectRegion in case you want them directly
 window.REGIONS = REGIONS;
 window.detectRegion = detectRegion;
+
+// Debug helper: log any entries that don't match a region
+window.logUnmatchedRegions = function(items) {
+  const unmatched = items.filter(x => !detectRegion(x));
+  if (unmatched.length) {
+    console.group('Unmatched region entries ('+unmatched.length+')');
+    unmatched.forEach(u => {
+      console.log(
+        'ShortName:', u.shortName || u.stationName || '(none)',
+        '| Title:', u.title || u.description || '(none)',
+        '| Website:', u.website || '(none)'
+      );
+    });
+    console.groupEnd();
+  } else {
+    console.log('All entries matched a region ✔️');
+  }
+};

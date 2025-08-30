@@ -45,6 +45,15 @@
   .day{margin-top:24px}
   .day h2{margin:0 0 10px;font-size:16px;font-weight:600;color:#cbd5e1;text-transform:uppercase}
   .pager{display:flex;gap:10px;align-items:center;margin-top:18px}
+  /* visibly flag cards whose station didn't match any region */
+/* wrapper stays invisible; we style the card inside it */
+.card-wrapper.no-region .card{
+  border:2px dashed #ef4444 !important;
+  background:#450a0a33;
+}
+.warn-badge{
+  color:#ef4444; font-weight:700; margin-left:6px;
+}
   .skeleton{background:linear-gradient(90deg,#ffffff0a,#ffffff17,#ffffff0a);background-size:200% 100%;animation:sweep 1.2s linear infinite;border:1px solid var(--border);border-radius:18px;height:96px}
   @keyframes sweep{0%{background-position:200% 0}100%{background-position:-200% 0}}
   .empty{margin-top:18px;color:#94a3b8}
@@ -185,16 +194,22 @@ function cardHTML(it){
     </div>`;
 }
 
-  function renderGroups(items){
-    const groups={Today:[],Yesterday:[],Earlier:[]};
-    items.forEach(x=> groups[dayLabel(x.launchDate)].push(x));
-    const sections = ['Today','Yesterday','Earlier'].map(label=>{
-      const arr = groups[label] || [];
-      if (!arr.length) return '';
-      return `<section class="day"><h2>${label}</h2><div class="grid">${arr.map(cardHTML).join('')}</div></section>`;
-    }).join('');
-    els.days.innerHTML = sections || `<div class="empty">No older launches yet — check back soon.</div>`;
-  }
+  function cardShell(it){
+  const html = cardHTML(it);
+  const hasRegion = !!detectRegion(it); // detectRegion is already in regions.js
+  return `<div class="card-wrapper${hasRegion ? '' : ' no-region'}">${html}</div>`;
+}
+
+function renderGroups(items){
+  const groups={Today:[],Yesterday:[],Earlier:[]};
+  items.forEach(x=> groups[dayLabel(x.launchDate)].push(x));
+  const sections = ['Today','Yesterday','Earlier'].map(label=>{
+    const arr = groups[label] || [];
+    if (!arr.length) return '';
+    return `<section class="day"><h2>${label}</h2><div class="grid">${arr.map(cardShell).join('')}</div></section>`;
+  }).join('');
+  els.days.innerHTML = sections || `<div class="empty">No older launches yet — check back soon.</div>`;
+}
 
   function renderLoading(){
     els.days.innerHTML =
@@ -203,21 +218,49 @@ function cardHTML(it){
       }</div></section>`;
   }
 
-  function updateRegionCounts(baseItems){
-    const counts = {
-      all: baseItems.length,
-      wales: baseItems.filter(x=>inRegion(x,'wales')).length,
-      scotland: baseItems.filter(x=>inRegion(x,'scotland')).length,
-      england: baseItems.filter(x=>inRegion(x,'england')).length,
-      ireland: baseItems.filter(x=>inRegion(x,'ireland')).length
-    };
-    Object.keys(counts).forEach(k=>{
-      els.counts[k].textContent = counts[k] ? counts[k] : '';
-      const btn = els.regionSeg.querySelector('button[data-region="'+k+'"]');
-      if (!btn) return;
-      btn.style.display = (k!=='all' && counts[k]===0) ? 'none' : '';
-    });
+function updateRegionCounts(baseItems){
+  const counts = {
+    ALL: baseItems.length,
+    WALES: baseItems.filter(x => inRegion(x,'wales')).length,
+    SCOTLAND: baseItems.filter(x => inRegion(x,'scotland')).length,
+    ENGLAND: baseItems.filter(x => inRegion(x,'england')).length,
+    IRELAND: baseItems.filter(x => inRegion(x,'ireland')).length,
+  };
+
+  // write numbers
+  els.counts.all.textContent = counts.ALL || '';
+  els.counts.wales.textContent = counts.WALES || '';
+  els.counts.scotland.textContent = counts.SCOTLAND || '';
+  els.counts.england.textContent = counts.ENGLAND || '';
+  els.counts.ireland.textContent = counts.IRELAND || '';
+
+  // hide empty buttons (except All)
+  ['wales','scotland','england','ireland'].forEach(k=>{
+    const btn = els.regionSeg.querySelector(`button[data-region="${k}"]`);
+    if (btn) btn.style.display = counts[k.toUpperCase()] === 0 ? 'none' : '';
+  });
+
+  // ⚠ if totals don't match, add a red badge on "All"
+  const sumRegions = counts.WALES + counts.SCOTLAND + counts.ENGLAND + counts.IRELAND;
+  const diff = counts.ALL - sumRegions;
+  const allBtn = els.regionSeg.querySelector('button[data-region="all"],button[data-region="ALL"]');
+  if (allBtn){
+    // remove any existing badge first
+    const old = allBtn.querySelector('.warn-badge');
+    if (old) old.remove();
+    if (diff !== 0){
+      const b = document.createElement('span');
+      b.className = 'warn-badge';
+      b.textContent = `⚠ ${Math.abs(diff)}`;
+      allBtn.appendChild(b);
+      // console log which ones need mapping
+      const unknowns = baseItems.filter(x => !inRegion(x,'wales') && !inRegion(x,'scotland') && !inRegion(x,'england') && !inRegion(x,'ireland'));
+      if (unknowns.length){
+        console.warn('Unmatched stations:', unknowns.map(u => u.shortName || u.title || u.website));
+      }
+    }
   }
+}
 
   function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
 

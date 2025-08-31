@@ -15,8 +15,8 @@ $DATA    = $ROOT . '/data';
 $LINES   = $DATA . '/launches.jsonl';   // archive store (JSON Lines)
 $CRONLOG = $DATA . '/cron.jsonl';       // writer runs (for report.php)
 $TZNAME  = 'Europe/London';
-$MAX_PAGE = 200;
-$MAX_SIZE = 200;
+$MAX_PAGE = 300;
+$MAX_SIZE = 50;
 
 try { $TZ = new DateTimeZone($TZNAME); } catch (Exception $e) { $TZ = new DateTimeZone('UTC'); }
 
@@ -45,7 +45,7 @@ function cron_log($job, $status, $fields = []) {
 }
 
 // Try to pull RNLI feed directly (server-side; CORS irrelevant)
-function fetch_rnli($limit = 50, &$err = null) {
+function fetch_rnli($limit = 500, &$err = null) {
   $limit = max(1, min(500, intval($limit)));
   $url = "https://services.rnli.org/api/launches?numberOfShouts={$limit}";
   $ch = curl_init($url);

@@ -11,7 +11,7 @@ const REGIONS = {
     'edinburgh','eyemouth','glasgow','aberdeen','inverness','dundee','fife','ayrshire',
     'moray','highland','orkney','shetland','outer hebrides','western isles',
     'largs','strathclyde','portree','queensferry','skye','isle of skye','campbeltown','argyll',
-    'grampian','north berwick'      
+    'grampian','north berwick','dunbar'      
   ],
   england: [
     'london','cornwall','devon','dorset','kent','essex','sussex','norfolk',
@@ -23,7 +23,7 @@ const REGIONS = {
   ],
   ireland: [
     'dublin','galway','cork','belfast','londonderry','waterford',
-    'dún laoghaire','dun laoghaire'
+    'dún laoghaire','dun laoghaire','donegal'
   ]
 };
 

@@ -16,7 +16,7 @@ $LINES   = $DATA . '/launches.jsonl';   // archive store (JSON Lines)
 $CRONLOG = $DATA . '/cron.jsonl';       // writer runs (for report.php)
 $TZNAME  = 'Europe/London';
 $MAX_PAGE = 300;
-$MAX_SIZE = 50;
+$MAX_SIZE = 300;
 
 try { $TZ = new DateTimeZone($TZNAME); } catch (Exception $e) { $TZ = new DateTimeZone('UTC'); }
 

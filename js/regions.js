@@ -19,7 +19,7 @@ const REGIONS = {
     'somerset','lincolnshire','hampshire','isle of wight','durham','tyne',
     'hartlepool','whitby','scarborough','redcar','blackpool','south shields',
     'jersey','guernsey','alderney','isle of man',
-    'suffolk','hants','southend-on-sea'   
+    'suffolk','hants','southend-on-sea','mudeford', 'wicklow'   
   ],
   ireland: [
     'dublin','galway','cork','belfast','londonderry','waterford',

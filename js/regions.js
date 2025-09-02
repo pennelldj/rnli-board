@@ -23,7 +23,7 @@ const REGIONS = {
   ],
   ireland: [
     'dublin','galway','cork','belfast','londonderry','waterford',
-    'dún laoghaire','dun laoghaire','donegal','lough derg'
+    'dún laoghaire','dun laoghaire','donegal','lough derg','enniskillen','down'
   ]
 };
 
